@@ -1,6 +1,9 @@
 # Raw IMD grids are large (25 MB per year) and re-downloadable with
 # scripts/download_imd.py — provenance is recorded in data/raw/README.md.
+# The NASA POWER cache is kept: it is small and it makes the current-season
+# figures reproducible without a network call.
 data/raw/imd/
+data/raw/imd_rt/
 __pycache__/
 *.pyc
 .DS_Store
