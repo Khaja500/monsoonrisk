@@ -1,0 +1,29 @@
+# Module C: Israeli (game) option on NIFTY 50.  Market inputs are dated;
+# re-run scripts/build_site_data.py after updating them.
+
+market:
+  asof: 2026-10-13
+  s0: 22721.95
+  s0_source: "NIFTY 50 close 13 Oct 2026 (+1.60%, 358.60 pts) - Business Standard / Kotak Neo market close reports"
+  india_vix: 15.16
+  vix_source: "India VIX 12 Oct 2026 (+4.31%); 14.37 on 9 Oct 2026 - HDFC Sky market reports"
+  risk_free: 0.0560
+  risk_free_source: "RBI repo 5.50% (7 Oct 2026), SDF 5.25%, MSF 5.75%; 91-day T-bill taken as repo + 10 bp"
+  dividend_yield: 0.0123
+  dividend_source: "NIFTY 50 dividend yield 1.23% as of 1 Oct 2026 (NSE Indices factsheet / indexpe); 1.22% on 31 Jul 2026"
+  realised_vol: null
+  realised_vol_note: "NOT COMPUTED: bulk NIFTY 50 history could not be downloaded (Yahoo chart API returned HTTP 429, NSE and niftyindices endpoints returned 503/302 on 13 Oct 2026). India VIX is used as the volatility input and a vol grid is reported instead."
+
+contract:
+  kind: put
+  strikes_pct: [0.95, 1.00, 1.05]
+  tenors_years: [0.25, 0.5, 1.0, 2.0]
+  penalty_pct_of_s0: [0.0, 0.01, 0.02, 0.05]
+
+numerics:
+  binomial_steps: 2000
+  convergence_steps: [50, 100, 200, 400, 800, 1600, 3200]
+  lsm_paths: 120000
+  lsm_steps: 200
+  lsm_basis_degree: 4
+  seed: 20261013

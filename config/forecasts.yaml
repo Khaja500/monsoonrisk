@@ -1,0 +1,63 @@
+# Published weather observations and outlooks used as pricing inputs.
+# Every entry is something that was actually published and is quoted with its
+# source; nothing here is invented.  Retrieved 13 October 2026.
+
+asof: 2026-10-13
+
+mumbai:
+  season_2026_actual:
+    santacruz_mm: 2530.0
+    santacruz_normal_mm: 2318.8
+    santacruz_departure_pct: 9
+    colaba_mm: 1957.1
+    colaba_normal_mm: 2102.0
+    colaba_departure_pct: -7
+    station_mean_mm: 2243.55          # the RAINMUMBAI settlement basis: simple mean
+    station_mean_normal_mm: 2210.4
+    monthly_departures_santacruz: {June: -29, July: 55, August: -35, September: -49}
+    withdrawal_date: 2026-10-05
+    normal_withdrawal_date: 2026-10-08
+    last_rain_date: 2026-09-30
+    source: "Skymet Weather, 'Early Withdrawal Of Monsoon From Mumbai' (Oct 2026), quoting IMD station totals"
+  forecast_factor: 1.00               # season is over; nothing left to forecast
+  forecast_band: [1.00, 1.00]
+  risk_lambda: 0.0
+
+chennai:
+  nem_2026_outlook:
+    category: normal
+    pct_of_lpa_band: [88, 112]
+    region: "South Peninsular India (Oct-Dec)"
+    tamil_nadu: "normal; onset expected in the third week of October"
+    tamil_nadu_nem_average_cm: 44
+    spatial_note: "South and coastal Tamil Nadu normal to above normal in October; north interior districts below normal"
+    onset_note: "Low-pressure area forming over the south-east Bay of Bengal on 13 Oct 2026; onset expected within two days"
+    source: "IMD Northeast Monsoon Seasonal Outlook (1 Oct 2026); IMD press statements reported 13 Oct 2026"
+  forecast_factor: 1.00               # centre of the 'normal' category
+  forecast_band: [0.88, 1.12]         # IMD's normal category, applied to the season anchor
+  risk_lambda: 0.0
+
+bengaluru:
+  sw_monsoon_2026_actual:
+    karnataka_mm: 551.0
+    karnataka_normal_mm: 852.0
+    karnataka_departure_pct: -35
+    south_interior_departure_pct: -41
+    north_interior_departure_pct: -42
+    malnad_departure_pct: -38
+    coastal_departure_pct: -28
+    note: "Karnataka's worst south-west monsoon deficit in 55 years; Bengaluru South was the only division inside the normal range, at -18%"
+    source: "SANDRP, 'SW Monsoon 2026: District wise rainfall in India' (2 Oct 2026), from IMD data"
+  all_india_2026:
+    actual_mm: 759.4
+    normal_mm: 868.6
+    departure_pct: -12.6
+    note: "worst all-India monsoon deficit since 2015"
+    source: "IMD end-of-season statement, 30 Sep 2026 (Business Standard, TechTimes)"
+  nem_2026_outlook:
+    category: normal
+    pct_of_lpa_band: [88, 112]
+    source: "IMD Northeast Monsoon Seasonal Outlook (1 Oct 2026)"
+  forecast_factor: 1.00               # Oct-Dec remainder: IMD 'normal' category centre
+  forecast_band: [0.88, 1.12]
+  risk_lambda: 0.0

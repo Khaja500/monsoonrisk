@@ -1,0 +1,40 @@
+# Module B contract terms.  Attachment and exhaustion are in mm of the trigger index.
+# Defaults are set from each city's fitted distribution (see docs/assumptions.md):
+# attachment near the 1-in-5 year level, exhaustion near the 1-in-50 year level.
+
+discount:
+  rate: 0.0560                 # 91-day T-bill proxy, continuously compounded
+  source: "RBI policy repo 5.50% (7 Oct 2026 MPC) + ~10 bp; 91-day T-bill auction yield not retrieved programmatically"
+
+collateral_yield: 0.0560       # r in the coupon (r + s) * P
+
+premium_rules:
+  r1_multiples: [1.0, 1.5, 2.0, 3.0]
+  wang_lambdas: [0.0, 0.15, 0.25, 0.40]
+  sd_betas: [0.0, 0.25, 0.50, 1.00]
+  default: {rule: wang, lam: 0.25}
+
+bonds:
+  flood:                       # B1 principal-at-risk, flood-style
+    type: parametric
+    trigger: MAX3
+    quantile_attach: 0.90      # attachment = 90th percentile of the fitted index
+    quantile_exhaust: 0.99
+    tenors: [1, 3]
+    aggregate: false
+  drought:                     # B1 principal-at-risk on a dry season (inverted trigger)
+    type: parametric
+    trigger: SEAS_TOTAL
+    inverted: true             # loss grows as the index falls
+    quantile_attach: 0.10
+    quantile_exhaust: 0.01
+    tenors: [1, 3]
+    aggregate: false
+  coupon:                      # B2 principal-protected, drought-linked coupon
+    type: coupon
+    trigger: SEAS_TOTAL
+    c_fixed: 0.055
+    kappa: 0.06
+    strike_quantile: 0.40      # K
+    cap_quantile: 0.05         # cap set at (K - q05) in mm
+    tenors: [3]

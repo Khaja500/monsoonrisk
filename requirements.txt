@@ -1,0 +1,7 @@
+# MonsoonRisk — pinned to the versions the results in docs/ were generated with.
+numpy>=1.26
+scipy>=1.11
+pandas>=2.0
+imdlib>=0.3.1
+PyYAML>=6.0
+pytest>=7.4

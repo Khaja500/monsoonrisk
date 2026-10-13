@@ -1,0 +1,71 @@
+# Season windows, grid cells and settlement bases for the three cities.
+# Changing anything here changes every published number; log it in docs/assumptions.md.
+
+baseline:
+  lpa_start_year: 1991      # RAINMUMBAI's stated 30-year basis
+  lpa_end_year: 2020
+  history_start_year: 1981  # earliest year downloaded for index history
+  smoothing_window: 15      # centred moving average applied to the daily normal
+  wet_day_threshold_mm: 2.5
+
+cities:
+  mumbai:
+    label: Mumbai
+    lat: 19.10
+    lon: 72.90
+    season: [06-01, 09-30]
+    season_basis: "RAINMUMBAI (NCDEX) is defined over 1 June - 30 September"
+    contract:
+      status: traded
+      code: RAINMUMBAI
+      exchange: NCDEX
+      anchor_mm: 2206.7        # NCDEX CDR anchor = 1991-2020 LPA, Colaba/Santacruz mean
+      multiplier_inr_per_mm: 50
+      tick_mm: 1
+      months: [Jun, Jul, Aug, Sep]
+      settlement_basis: "simple mean of IMD Colaba and Santacruz daily rainfall"
+    station_normal_mm: 2206.7  # used to bias-correct the grid cell onto the settlement basis
+    station_normal_source: "NCDEX Mumbai Rainfall Futures product note / NCDEX spot methodology"
+
+  chennai:
+    label: Chennai
+    lat: 13.08
+    lon: 80.27
+    season: [10-01, 12-31]
+    season_basis: "IMD: Oct-Dec north-east monsoon is the chief rainy season for Tamil Nadu and Puducherry (about 48% of annual rainfall)"
+    contract:
+      status: constructed       # NOT TRADED - constructed analogue of RAINMUMBAI
+      code: RAINCHENNAI-C
+      exchange: "none (hypothetical)"
+      anchor_mm: 750.0          # IMD Nungambakkam NE-monsoon normal (75 cm)
+      multiplier_inr_per_mm: 50
+      tick_mm: 1
+      months: [Oct, Nov, Dec]
+      settlement_basis: "hypothetical: IMD Nungambakkam daily rainfall"
+    station_normal_mm: 750.0
+    station_normal_source: "IMD Chennai north-east monsoon normal for Nungambakkam, 75 cm (Oct 260 mm, Nov 340 mm, Dec 160 mm)"
+
+  bengaluru:
+    label: Bengaluru
+    lat: 12.97
+    lon: 77.59
+    season: null                # chosen from data by src/a_rainfall/indices.py
+    season_basis: "window selected from data: largest share of annual rainfall for the fewest months"
+    season_candidates:
+      - [05-01, 11-30]
+      - [06-01, 11-30]
+      - [06-01, 09-30]
+      - [09-01, 11-30]
+      - [04-01, 11-30]
+      - [08-01, 11-30]
+    contract:
+      status: constructed       # NOT TRADED - constructed analogue of RAINMUMBAI
+      code: RAINBLR-C
+      exchange: "none (hypothetical)"
+      anchor_mm: null           # set to the grid LPA for the selected window
+      multiplier_inr_per_mm: 50
+      tick_mm: 1
+      months: [Sep, Oct, Nov]
+      settlement_basis: "hypothetical: IMD gridded cell nearest 12.97N 77.59E (no station normal verified)"
+    station_normal_mm: null
+    station_normal_source: "not verified - no published Bengaluru station season normal was confirmed, so the grid LPA is used unadjusted"

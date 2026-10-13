@@ -1,0 +1,276 @@
+<title>MonsoonRisk</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="preload" href="data/weather.json" as="fetch" crossorigin>
+<link rel="preload" href="data/game.json" as="fetch" crossorigin>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <span class="brand"><span class="dot"></span>MonsoonRisk</span>
+    <nav class="parts" id="nav">
+      <a href="#weather">Weather derivatives</a>
+      <a href="#israeli">Israeli option</a>
+      <a href="#method">Method &amp; limits</a>
+    </nav>
+    <button class="theme" id="theme-toggle" title="Switch theme" aria-label="Switch theme">◐</button>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Two pricing desks · one page</div>
+    <h1>Pricing India's rainfall derivatives, and an option the issuer can cancel</h1>
+    <p class="lede">
+      Part one prices rainfall index futures and catastrophe bonds for Mumbai, Chennai and
+      Bengaluru off 45 years of IMD gridded rainfall &mdash; and checks the Mumbai model against
+      what NCDEX's <strong>RAINMUMBAI</strong> contract actually settled at. Part two prices an
+      <strong>Israeli (game) option</strong> on the NIFTY 50: an American option whose issuer may
+      also cancel early for a penalty, which makes the price the value of a Dynkin game. Every
+      control on this page re-prices from the models, in your browser.
+    </p>
+    <div class="tiles" id="hero-tiles" style="margin-top:26px">
+      <div class="tile"><div class="k">loading</div></div>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- ================= PART 1 ================= -->
+  <section class="part" id="weather">
+    <div class="part-head"><span class="num">Part 1</span><h2>Weather derivatives</h2></div>
+    <p class="part-sub">
+      One traded contract and two constructed analogues. The index is an anchored cumulative
+      deviation of rainfall from its 1991&ndash;2020 daily normal, so at the end of a season the
+      settlement value is the realised seasonal rainfall in millimetres, and one millimetre is
+      worth &#8377;50.
+    </p>
+
+    <div class="card">
+      <h3>The three contracts</h3>
+      <p class="hint">Chennai and Bengaluru are constructed analogues built for this exercise. No
+        such contracts exist and nothing here is a quote.</p>
+      <div class="grid3" id="contract-cards"><div class="loading">loading…</div></div>
+    </div>
+
+    <h3 style="margin:30px 0 4px">1.1 &nbsp;RAINMUMBAI: the model against the actual settlement</h3>
+    <p class="part-sub">The 2026 monsoon is over, so the September contract's settlement value is
+      known. It is the simple mean of IMD's Colaba and Santacruz seasonal totals &mdash; the basis
+      the contract settles on.</p>
+    <div class="card" id="mumbai-headline"><div class="loading">loading…</div></div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Each 2026 contract month, priced before the season opened</h3>
+        <p class="hint">Fair value quoted on 31 May 2026 against what the contract settled at.
+          Model error in millimetres is &#8377;50 per millimetre per lot.</p>
+        <div id="chart-monthly"></div>
+        <div class="legend" id="legend-monthly"></div>
+      </div>
+      <div class="card">
+        <h3>The 2026 season, day by day</h3>
+        <p class="hint">The exchange's daily spot: the 2,206.7 mm anchor plus rainfall minus the
+          daily normal, accumulated. Reference seasons from the 1981&ndash;2025 record for scale.</p>
+        <div id="chart-path-mumbai"></div>
+        <div class="legend" id="legend-path-mumbai"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Thirty-five years of season-start fair values against realised settlements</h3>
+      <p class="hint">Each year the model is marked the day before the season opens; the trend
+        variant refits its trend on seasons strictly before that year, so it never sees its own
+        answer.</p>
+      <div id="chart-backtest"></div>
+      <div class="legend" id="legend-backtest"></div>
+      <div class="tiles" id="backtest-tiles" style="margin-top:16px"></div>
+    </div>
+
+    <h3 style="margin:34px 0 4px">1.2 &nbsp;New pricing for Chennai and Bengaluru</h3>
+    <p class="part-sub">Both seasons are live today, so these are forward-looking prices. The
+      remaining-season expectation is tilted by what the weather services have actually published
+      for 2026, and the band is IMD's own forecast category.</p>
+    <div class="controls" id="live-controls"></div>
+    <div class="grid2" id="live-cards"><div class="loading">loading…</div></div>
+
+    <h3 style="margin:34px 0 4px">1.3 &nbsp;Rainfall catastrophe bonds</h3>
+    <p class="part-sub">A principal-at-risk bond on a flood trigger, a drought trigger, or a
+      principal-protected bond whose coupon rises in a dry season. The rainfall index is not
+      tradeable, so there is no hedge-based price: the risk premium is an explicit choice and all
+      three rules are shown.</p>
+    <div class="card">
+      <div class="controls" id="bond-controls"></div>
+      <div class="tiles" id="bond-tiles"></div>
+      <div class="grid2" style="margin-top:20px">
+        <div>
+          <h4 style="font-size:.95rem;margin-bottom:2px">Loss exceedance</h4>
+          <p class="hint">Probability that the investor's principal loss over the bond's life
+            exceeds a given amount, per 100 of face.</p>
+          <div id="chart-exceedance"></div>
+          <div class="legend" id="legend-exceedance"></div>
+        </div>
+        <div>
+          <h4 style="font-size:.95rem;margin-bottom:2px">Where the triggers sit</h4>
+          <p class="hint">Observed seasons as dots, the fitted distribution behind them, and the
+            attachment and exhaustion levels you have set.</p>
+          <div id="chart-trigger"></div>
+          <div class="legend" id="legend-trigger"></div>
+        </div>
+      </div>
+      <div class="table-scroll" style="margin-top:22px">
+        <table id="bond-reference"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Risk premium rules, side by side</h3>
+      <p class="hint">The same bond under all three rules and their parameter grids, priced in
+        Python on the fitted distribution. Fair spread is quoted on a par price.</p>
+      <div class="table-scroll"><table id="premium-table"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= PART 2 ================= -->
+  <section class="part" id="israeli">
+    <div class="part-head"><span class="num">Part 2</span><h2>Israeli (game) option on NIFTY 50</h2></div>
+    <p class="part-sub">
+      The holder may exercise at any time for <span class="mono">G</span>. The issuer may cancel at
+      any time by paying <span class="mono">H = G + δ</span>. Neither side controls the other, so
+      the value solves a Dynkin game, and on a tree the recursion is
+      <span class="mono">V<sub>i</sub> = min( H<sub>i</sub> , max( G<sub>i</sub> , C<sub>i</sub> ) )</span>.
+      The contract is hypothetical: nothing like it trades on NIFTY.
+    </p>
+
+    <div class="card">
+      <h3>Market inputs</h3>
+      <p class="hint">Every input is dated and sourced; the volatility note matters.</p>
+      <div class="tiles" id="game-inputs"></div>
+      <div id="game-input-notes" class="sources" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Price it</h3>
+      <p class="hint">A CRR tree runs in your browser on every change: the game value, the American
+        value it would have without the cancellation right, and the difference between them.</p>
+      <div class="controls" id="game-controls"></div>
+      <div class="tiles" id="game-tiles"></div>
+      <div class="grid2" style="margin-top:20px">
+        <div>
+          <h4 style="font-size:.95rem;margin-bottom:2px">Who stops where</h4>
+          <p class="hint">The holder's exercise boundary over the life of the option, against the
+            strike, where the issuer's cancellation locus sits.</p>
+          <div id="chart-boundary"></div>
+          <div class="legend" id="legend-boundary"></div>
+        </div>
+        <div>
+          <h4 style="font-size:.95rem;margin-bottom:2px">Greeks</h4>
+          <p class="hint">Finite differences on the same tree, bumping spot, volatility, rate and
+            time.</p>
+          <table id="game-greeks"></table>
+        </div>
+      </div>
+      <div id="game-checks" style="margin-top:18px"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>The penalty is the whole contract</h3>
+        <p class="hint" id="penalty-hint"></p>
+        <div id="chart-penalty"></div>
+        <div class="legend" id="legend-penalty"></div>
+      </div>
+      <div class="card">
+        <h3>Volatility buys the holder nothing past a point</h3>
+        <p class="hint">The American value keeps rising with volatility. The game value stops where
+          the issuer's penalty caps it.</p>
+        <div id="chart-vol"></div>
+        <div class="legend" id="legend-vol"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Four methods on the same contract</h3>
+        <p class="hint">Tree, Longstaff&ndash;Schwartz Monte Carlo at a matched monitoring
+          frequency, Crank&ndash;Nicolson finite differences with two obstacles, and the rigorous
+          bracket. Disagreements are shown, not smoothed.</p>
+        <div class="table-scroll"><table id="method-table"></table></div>
+      </div>
+      <div class="card">
+        <h3>Tree convergence</h3>
+        <p class="hint">Price against step count for the reference contract.</p>
+        <div id="chart-convergence"></div>
+        <div class="legend" id="legend-convergence"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Validation suite</h3>
+      <p class="hint">The limiting cases and bounds from the specification, run in Python at build
+        time. Each one is a test in <span class="mono">tests/test_c_game.py</span>.</p>
+      <div id="validation-list"></div>
+    </div>
+
+    <div class="card">
+      <h3>Price table</h3>
+      <p class="hint">Game value, American value and the value of the issuer's cancellation right
+        across strike, tenor and penalty.</p>
+      <div class="controls" id="table-controls"></div>
+      <div class="table-scroll"><table id="price-table"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= METHOD ================= -->
+  <section class="part" id="method">
+    <div class="part-head"><span class="num">Notes</span><h2>Method, data and limitations</h2></div>
+    <p class="part-sub">What was built, what it rests on, and where it should not be trusted.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>Data register</h3>
+        <p class="hint">Including the sources that did not work.</p>
+        <div class="table-scroll"><table id="register-table"></table></div>
+      </div>
+      <div class="card" id="limits-card">
+        <h3>Limitations</h3>
+        <ul class="sources">
+          <li><strong>Grid versus station.</strong> RAINMUMBAI settles on two IMD stations. The
+            model is built on IMD's 0.25° grid, whose cell near Mumbai is about 23% wetter over the
+            season than the station normal, so every series is rescaled onto the published
+            settlement normal. That correction fixes the mean, not the shape.</li>
+          <li><strong>The current season is provisional.</strong> IMD has not published the 2026
+            archive year. Days in 2026 come from NASA POWER, bias-corrected the same way, and are
+            flagged as provisional everywhere. For Mumbai the provisional proxy overstates the
+            official 2026 seasonal total, which is shown rather than hidden.</li>
+          <li><strong>No market to calibrate against.</strong> India has no catastrophe bond market
+            and no Israeli options. Bond prices are model-based and reported as sensitivities to
+            the risk-premium rule; the game option is validated by limiting cases and cross-method
+            agreement, not by fit to a market.</li>
+          <li><strong>Forty-five seasons.</strong> Tail quantiles rest on a short record. Bootstrap
+            intervals on the empirical quantiles are in the exported data for every index.</li>
+          <li><strong>Independence across years.</strong> Multi-year bonds assume independent
+            seasons. The lag-1 autocorrelation and the cross-city rank correlations are reported so
+            the assumption can be checked.</li>
+          <li><strong>Realised volatility is missing.</strong> Bulk NIFTY 50 history could not be
+            downloaded, so India VIX is the volatility input and a volatility grid is shown instead
+            of a realised-volatility estimate.</li>
+          <li><strong>Constant volatility.</strong> The game option uses geometric Brownian motion,
+            so no smile and no skew.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Published figures used as inputs</h3>
+      <p class="hint">The 2026 weather reports and market levels behind the prices above.</p>
+      <div id="source-list" class="sources"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong>MonsoonRisk</strong> — a pricing study, not investment advice. Chennai and Bengaluru
+      contracts are constructed analogues that do not exist; the Israeli option is hypothetical.</p>
+    <p id="footer-meta" class="mono"></p>
+  </div>
+</footer>
+
+<script type="module" src="app.js"></script>
