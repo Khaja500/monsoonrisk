@@ -22,6 +22,9 @@ from ..common.paths import PROCESSED, RAW, load_config
 
 GRID_STEP = 0.25
 MISSING = -99.0
+# Four decimals of a millimetre, so a re-written series is byte-identical to the
+# one it replaced and a scheduled refresh produces a diff only where data moved.
+CSV_FLOAT = "%.4f"
 
 
 @dataclass
@@ -117,6 +120,13 @@ def power_series(lat: float, lon: float, start: str, end: str) -> pd.Series:
     cache = os.path.join(RAW, "power", f"{lat}_{lon}_{start}_{end}.json")
     os.makedirs(os.path.dirname(cache), exist_ok=True)
     if not os.path.exists(cache):
+        # The end date moves every day, so a daily refresh would otherwise leave
+        # one file per day behind; drop the superseded ones for this point.
+        import glob
+
+        for stale in glob.glob(os.path.join(RAW, "power", f"{lat}_{lon}_{start}_*.json")):
+            if stale != cache:
+                os.remove(stale)
         url = ("https://power.larc.nasa.gov/api/temporal/daily/point"
                f"?parameters=PRECTOTCORR&community=AG&longitude={lon}&latitude={lat}"
                f"&start={start.replace('-', '')}&end={end.replace('-', '')}&format=JSON")
@@ -200,6 +210,6 @@ def build_city_series(city_key: str, current_year: int, allow_realtime: bool = F
     ref = pd.DataFrame({"rain_mm": power})
     ref.index.name = "date"
     os.makedirs(PROCESSED, exist_ok=True)
-    out.to_csv(os.path.join(PROCESSED, f"{city_key}_daily.csv"))
-    ref.to_csv(os.path.join(PROCESSED, f"{city_key}_power_reference.csv"))
+    out.to_csv(os.path.join(PROCESSED, f"{city_key}_daily.csv"), float_format=CSV_FLOAT)
+    ref.to_csv(os.path.join(PROCESSED, f"{city_key}_power_reference.csv"), float_format=CSV_FLOAT)
     return out

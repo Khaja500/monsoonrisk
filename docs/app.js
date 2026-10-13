@@ -70,7 +70,7 @@ async function main() {
 
   const b = weather.meta.baseline;
   el('footer-meta').textContent =
-    `data as of ${weather.meta.asof} · built ${weather.meta.built_at ?? 'unknown'} · `
+    `data as of ${weather.meta.asof} · observations through ${weather.meta.data_through ?? 'unknown'} · `
     + `IMD gridded rainfall ${b.history_start_year}–2025 plus a provisional 2026 · `
     + `normals ${b.lpa_start_year}–${b.lpa_end_year}, ${b.smoothing_window}-day smoothing · `
     + `${weather.meta.bootstrap_resamples ?? 0} bootstrap resamples · `

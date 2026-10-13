@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 
 from src.a_rainfall.climate import load_all
-from src.a_rainfall.data import SOURCE_LABELS, load_cached_series, power_series
+from src.a_rainfall.data import CSV_FLOAT, SOURCE_LABELS, load_cached_series, power_series
 from src.common.paths import PROCESSED, load_config
 
 
@@ -40,13 +40,13 @@ def main() -> None:
         out = pd.concat([archive, live_frame])
         out = out[~out.index.duplicated(keep="first")].sort_index()
         out.index.name = "date"
-        out.to_csv(os.path.join(PROCESSED, f"{key}_daily.csv"))
+        out.to_csv(os.path.join(PROCESSED, f"{key}_daily.csv"), float_format=CSV_FLOAT)
 
         ref_path = os.path.join(PROCESSED, f"{key}_power_reference.csv")
         ref = power_series(city["lat"], city["lon"],
                            f"{cfg['baseline']['history_start_year']}-01-01",
                            end.strftime("%Y-%m-%d"))
-        pd.DataFrame({"rain_mm": ref}).rename_axis("date").to_csv(ref_path)
+        pd.DataFrame({"rain_mm": ref}).rename_axis("date").to_csv(ref_path, float_format=CSV_FLOAT)
         print(f"{key}: {len(out)} days, latest {out.index.max().date()}", flush=True)
 
     indices = load_all(refresh=True)

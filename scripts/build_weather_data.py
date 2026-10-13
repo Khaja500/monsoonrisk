@@ -27,7 +27,9 @@ from src.b_bonds.pricer import (price_coupon_bond, price_parametric,
                                 price_with_parameter_uncertainty)
 from src.common.paths import SITE_DATA, ensure_dirs, load_config
 
-ASOF = pd.Timestamp(os.environ.get("MONSOONRISK_ASOF", "2026-10-13"))
+ASOF = pd.Timestamp(os.environ.get("MONSOONRISK_ASOF")
+                    or pd.Timestamp.utcnow().tz_localize(None).normalize())
+SEASON_YEAR = 2026        # the season the RAINMUMBAI comparison is about
 QGRID = np.round(np.linspace(0.001, 0.999, 251), 6)
 N_BOOT = int(os.environ.get("MONSOONRISK_NBOOT", "200"))
 
@@ -206,6 +208,31 @@ def city_payload(key: str, cfg: dict, fcfg: dict, climate: dict) -> tuple[dict, 
     return payload, ci
 
 
+def mumbai_season_contracts(cfg: dict, fcfg: dict, climate: dict, year: int) -> dict:
+    """Mumbai's contract months for one season, marked the day before it opened.
+
+    Kept separate from the current-year block so that rebuilding on a later date
+    does not silently re-point the RAINMUMBAI comparison at a different season.
+    """
+    frame, ref = load_cached_series("mumbai")
+    ci = build_city_index("mumbai", frame, ref)
+    start_month = int(ci.window[0][:2])
+    years = sorted(set(ci.table["year"].tolist() + [year]))
+    climate_tbl = state_table(years, start_month, climate)
+    fc = F.build("mumbai", ci.table, climate_tbl, ci.anchor_mm)
+    factor = fc.factor(season_state(year, start_month, climate).to_dict(), year)
+    months = [6, 7, 8, 9]
+    plain = FuturesModel(ci, forecast_factor=1.0)
+    tilted = FuturesModel(ci, forecast_factor=float(factor["factor"]),
+                          forecast_label=factor["variant"])
+    asof = pd.Timestamp(f"{year}-12-31")
+    return {
+        "climatology": monthly_contracts(ci, year, months, plain, asof, value_at="season_start"),
+        "forecast": monthly_contracts(ci, year, months, tilted, asof, value_at="season_start"),
+        "factor": factor,
+    }
+
+
 def main() -> None:
     ensure_dirs()
     cfg = load_config("cities")
@@ -219,13 +246,16 @@ def main() -> None:
         cities[key] = payload
         tables[key] = ci.table
 
+    # The comparison is about the 2026 season specifically, so it is computed for
+    # that year rather than for whatever year the build happens to run in.
     mum = cities["mumbai"]
     actual = fcfg["mumbai"]["season_2026_actual"]
     anchor = mum["anchor_mm"]
     official = float(actual["station_mean_mm"])
-    proxy = float([r for r in mum["indices"] if r["year"] == 2026][0]["SEAS_TOTAL"])
+    proxy = float([r for r in mum["indices"] if r["year"] == SEASON_YEAR][0]["SEAS_TOTAL"])
     mult = float(mum["contract"]["multiplier_inr_per_mm"])
-    forecast_sep = [r for r in mum["futures"]["contracts_forecast"] if r["month"] == 9][0]
+    mum_exante = mumbai_season_contracts(cfg, fcfg, climate, SEASON_YEAR)
+    forecast_sep = [r for r in mum_exante["forecast"] if r["month"] == 9][0]
     comparison = {
         "contract": "RAINMUMBAI Sep 2026",
         "expiry": expiry_date(2026, 9).strftime("%Y-%m-%d"),
@@ -240,9 +270,9 @@ def main() -> None:
         "gridded_proxy_settlement_mm": proxy,
         "gridded_proxy_error_mm": proxy - official,
         "model_fair_value_with_forecast_mm": forecast_sep["fair_value_mm"],
-        "forecast_variant": mum["forecast"]["factor_now"]["variant"],
+        "forecast_variant": mum_exante["factor"]["variant"],
         "forecast_error_mm": forecast_sep["fair_value_mm"] - official,
-        "monthly_exante": mum["futures"]["contracts_exante"],
+        "monthly_exante": mum_exante["climatology"],
         "note": ("The season is over, so the Sep-2026 settlement is known.  The official "
                  "figure is the simple mean of IMD's Colaba and Santacruz seasonal totals, "
                  "the basis the contract settles on.  NCDEX's daily futures quotes are not "
@@ -254,7 +284,11 @@ def main() -> None:
     out = {
         "meta": {
             "asof": ASOF.strftime("%Y-%m-%d"),
-            "built_at": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            # Stamp the data, not the clock: a wall-clock stamp would make the
+            # scheduled job commit a diff every day even when nothing moved.
+            "data_through": max(c["current_season"]["path"][-1]["date"]
+                                for c in cities.values()
+                                if c["current_season"]["path"]),
             "baseline": cfg["baseline"],
             "discount": bcfg["discount"],
             "premium_defaults": bcfg["premium_rules"],
