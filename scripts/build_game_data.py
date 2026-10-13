@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-from src.c_game.binomial import convergence, price_game, price_tree
+from src.c_game.binomial import averaged_price, convergence, price_game, price_tree
 from src.c_game.dual import bounds
 from src.c_game.fd import price_fd
 from src.c_game.lsm import price_lsm
@@ -98,15 +98,21 @@ def main() -> None:
         k, delta = kp * s0, pen * s0
         steps = int(num["lsm_steps"])
         tree_matched = price_tree(s0, k, r, q, sigma, ref_T, steps, kind, delta, "game")["price"]
-        tree_fine = price_tree(s0, k, r, q, sigma, ref_T, 3000, kind, delta, "game")["price"]
+        # A single fine tree is not a reference: the double-obstacle lattice
+        # oscillates with the step count.  Average a band of resolutions and
+        # publish the spread as the numerical uncertainty that remains.
+        avg = averaged_price(s0, k, r, q, sigma, ref_T, kind, delta,
+                             steps_list=list(range(1500, 2501, 100)))
+        tree_fine = avg["price"]
         mc = price_lsm(s0, k, r, q, sigma, ref_T, kind, delta, n_paths=int(num["lsm_paths"]),
                        steps=steps, degree=int(num["lsm_basis_degree"]), seed=seed)
-        pde = price_fd(s0, k, r, q, sigma, ref_T, kind, delta, "game", n_space=1000, n_time=1000)
+        pde = price_fd(s0, k, r, q, sigma, ref_T, kind, delta, "game", n_space=2000, n_time=2000)
         br = bounds(s0, k, r, q, sigma, ref_T, kind, delta, n_paths=40_000, steps=200,
                     tree_steps=1200, seed=seed)
         methods.append({
             "strike_pct": kp, "penalty_pct": pen,
-            "tree_matched_steps": tree_matched, "tree_3000": tree_fine,
+            "tree_matched_steps": tree_matched, "tree_averaged": tree_fine,
+            "tree_averaged_sd": avg["sd"], "tree_averaged_range": [avg["min"], avg["max"]],
             "lsm": mc.price, "lsm_se": mc.stderr, "lsm_ci": [mc.ci[0], mc.ci[1]],
             "pde": pde["price"], "steps": steps,
             "bracket_lower": br.lower, "bracket_upper": br.upper,
@@ -147,8 +153,12 @@ def main() -> None:
     add("Monte Carlo agrees with the tree at matched monitoring frequency", worst_lsm < 5.0,
         f"largest gap {worst_lsm:.2f}% (out-of-the-money with a 1% penalty is the worst case)")
     worst_pde = max(abs(m["pde_vs_tree_pct"]) for m in methods)
-    add("Finite differences agree with the tree", worst_pde < 5.0,
+    add("Finite differences agree with the averaged tree", worst_pde < 5.0,
         f"largest gap {worst_pde:.2f}%")
+    worst_osc = max(200.0 * m["tree_averaged_sd"] / max(m["tree_averaged"], 1e-9)
+                    for m in methods)
+    add("Lattice oscillation is measured, not hidden", worst_osc < 5.0,
+        f"largest 2-sigma swing across step counts {worst_osc:.2f}% of price")
     conv = convergence(s0, ref_strike, r, q, sigma, ref_T, num["convergence_steps"], kind,
                        ref_pen * s0)
     conv_atm = convergence(s0, s0, r, q, sigma, ref_T, num["convergence_steps"], kind,

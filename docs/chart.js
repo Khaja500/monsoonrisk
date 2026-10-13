@@ -93,10 +93,10 @@ export function frame(host, opts = {}) {
         t.textContent = label;
       }
     },
-    vline(v, { color = 'var(--text-muted)', dash = '4 4', label = null } = {}) {
+    vline(v, { color = 'var(--text-muted)', dash = '4 4', label = null, dy = 0 } = {}) {
       const x = sx(v);
       el('line', { x1: x, x2: x, y1: padTop, y2: height - padBottom, stroke: color, 'stroke-width': 1.5, 'stroke-dasharray': dash }, plot);
-      if (label) el('text', { x: x + 4, y: padTop + 10, class: 'series-label', fill: color }, plot).textContent = label;
+      if (label) el('text', { x: x + 4, y: padTop + 10 + dy, class: 'series-label', fill: color }, plot).textContent = label;
     },
     dot(x, y, { color = 'var(--series-1)', r = 4.5, ring = true } = {}) {
       el('circle', { cx: sx(x), cy: sy(y), r, fill: color, stroke: ring ? 'var(--surface-1)' : 'none', 'stroke-width': 2 }, plot);

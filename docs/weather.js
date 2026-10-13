@@ -59,7 +59,7 @@ function mumbaiHeadline() {
         ${tile('Santacruz 2026', fmt.mm(o.santacruz_mm, 1), `${fmt.signed(o.santacruz_departure_pct, 0)}% vs normal`)}
         ${tile('Colaba 2026', fmt.mm(o.colaba_mm, 1), `${fmt.signed(o.colaba_departure_pct, 0)}% vs normal`)}
         ${tile('Climatology model', fmt.mm(c.model_fair_value_season_start_mm, 1), 'anchor, no tilt')}
-        ${tile('Trend model', fmt.mm(c.model_fair_value_with_trend_mm, 1), `${fmt.signed(c.model_fair_value_with_trend_mm - c.official_settlement_mm, 0)} mm error`)}
+        ${tile(`Forecast model (${h(c.forecast_variant)})`, fmt.mm(c.model_fair_value_with_forecast_mm, 1), `${fmt.signed(c.forecast_error_mm, 0)} mm error`)}
       </div>
     </div>
     <div class="callout warn" style="margin-top:20px">
@@ -149,7 +149,7 @@ function pathChart(cityKey, host, legendHost) {
 function backtestChart() {
   const bt = W.cities.mumbai.futures.backtest;
   const rows = bt.rows.filter((r) => r.complete);
-  const vals = rows.flatMap((r) => [r.settlement_mm, r.fair_value_trend_mm, r.fair_value_anchor_mm]);
+  const vals = rows.flatMap((r) => [r.settlement_mm, r.fair_value_forecast_mm, r.fair_value_anchor_mm]);
   const f = frame(el('chart-backtest'), {
     height: 300, padLeft: 62,
     xDomain: [rows[0].year, rows.at(-1).year],
@@ -157,24 +157,78 @@ function backtestChart() {
     xFormat: (v) => Math.round(v), yFormat: fmt.int, yLabel: 'mm',
   });
   f.line(rows.map((r) => [r.year, r.fair_value_anchor_mm]), { color: 'var(--text-muted)', w: 1.5, dash: '4 3' });
-  f.line(rows.map((r) => [r.year, r.fair_value_trend_mm]), { color: S[2], w: 2 });
+  f.line(rows.map((r) => [r.year, r.fair_value_forecast_mm]), { color: S[2], w: 2 });
   f.line(rows.map((r) => [r.year, r.settlement_mm]), { color: S[1], w: 2.5 });
   for (const r of rows) f.dot(r.year, r.settlement_mm, { color: S[1], r: 2.6, ring: false });
   f.hover(rows.map((r) => ({ x: r.year, y: r.settlement_mm, payload: r })), (r) =>
-    `<b>${r.year}</b><br>settled ${fmt.mm(r.settlement_mm, 0)}<br>climatology ${fmt.mm(r.fair_value_anchor_mm, 0)} (${fmt.signed(r.error_anchor_mm, 0)})<br>trend ${fmt.mm(r.fair_value_trend_mm, 0)} (${fmt.signed(r.error_trend_mm, 0)})`);
+    `<b>${r.year}</b><br>settled ${fmt.mm(r.settlement_mm, 0)}<br>climatology ${fmt.mm(r.fair_value_anchor_mm, 0)} (${fmt.signed(r.error_anchor_mm, 0)})<br>${h(r.forecast_variant)} ${fmt.mm(r.fair_value_forecast_mm, 0)} (${fmt.signed(r.error_forecast_mm, 0)})`);
   legend(el('legend-backtest'), [
     { color: S[1], line: true, label: 'realised settlement' },
     { color: 'var(--text-muted)', line: true, label: 'climatology model (the anchor)' },
-    { color: S[2], line: true, label: 'trend-adjusted model' },
+    { color: S[2], line: true, label: 'walk-forward statistical forecast' },
   ]);
-  const a = bt.anchor_model, t = bt.trend_model;
+  const a = bt.anchor_model, t = bt.forecast_model;
   el('backtest-tiles').innerHTML = [
     tile('Seasons tested', bt.n_years, '1991 → 2025'),
     tile('Climatology MAE', fmt.mm(a.mae_mm, 0), `bias ${fmt.signed(a.bias_mm, 0)} mm · RMSE ${fmt.int(a.rmse_mm)}`),
-    tile('Trend MAE', fmt.mm(t.mae_mm, 0), `bias ${fmt.signed(t.bias_mm, 0)} mm · RMSE ${fmt.int(t.rmse_mm)}`),
-    tile('Trend wins', `${fmt.num(bt.trend_beats_anchor_pct, 0)}%`, `identical in ${fmt.num(bt.models_identical_pct, 0)}% of years`),
+    tile('Forecast MAE', fmt.mm(t.mae_mm, 0), `bias ${fmt.signed(t.bias_mm, 0)} mm · RMSE ${fmt.int(t.rmse_mm)}`),
+    tile('Forecast wins', `${fmt.num(bt.forecast_beats_anchor_pct, 0)}%`, `identical in ${fmt.num(bt.models_identical_pct, 0)}% of years`),
     tile('Mean absolute P&amp;L', fmt.inr(bt.mean_abs_pnl_inr_per_lot), 'per lot, climatology quote'),
   ].join('');
+}
+
+/* ---------------- does the seasonal forecast know anything? ---------------- */
+function forecastCard() {
+  const cities = Object.values(W.cities);
+  const state = cities[0].forecast.state_now;
+  const names = { climatology: 'climatology', trend: 'linear trend', enso: 'Niño 3.4',
+                  enso_iod: 'Niño 3.4 + IOD', enso_trend: 'Niño 3.4 + trend' };
+
+  el('forecast-state').innerHTML = [
+    tile('Niño 3.4 today', `${fmt.signed(state.nino34, 2)} °C`,
+      `${h(state.nino34_months)} mean · ${state.nino34 > 1 ? 'strong El Niño' : state.nino34 > 0.5 ? 'El Niño' : state.nino34 < -0.5 ? 'La Niña' : 'neutral'}`,
+      state.nino34 > 0 ? 'pos' : 'neg'),
+    tile('Dipole Mode Index', state.dmi === null ? 'not published' : fmt.signed(state.dmi, 2),
+      state.dmi === null ? 'HadISST lags several months' : 'same window'),
+    ...cities.map((c) => tile(`${h(c.label)} forecast`, names[c.forecast.selected] ?? c.forecast.selected,
+      c.forecast.selected === 'climatology' ? 'nothing beat climatology'
+        : `factor ${fmt.num(c.forecast.factor_now.factor, 3)}`)),
+  ].join('');
+
+  const variants = Object.keys(names);
+  el('forecast-skill').innerHTML = `
+    <thead><tr><th>Out-of-sample RMSE, as a ratio to the long-period average</th>
+      ${cities.map((c) => `<th class="num">${h(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>${variants.map((v) => `<tr>
+      <td>${h(names[v])}</td>
+      ${cities.map((c) => {
+        const s2 = c.forecast.skills[v];
+        if (!s2 || !s2.usable) return '<td class="num">—</td>';
+        const picked = c.forecast.selected === v;
+        const better = s2.skill_vs_climatology > 0;
+        return `<td class="num" style="${picked ? 'font-weight:650' : ''};color:${
+          v === 'climatology' ? 'inherit' : better ? 'var(--good)' : 'var(--text-muted)'}">
+          ${fmt.num(s2.rmse, 3)}${v === 'climatology' ? '' : ` <span class="hint">${fmt.signed(s2.skill_vs_climatology * 100, 1)}%</span>`}
+          ${picked ? ' ✓' : ''}</td>`;
+      }).join('')}</tr>`).join('')}</tbody>
+    <caption>Each season is predicted by a model fitted only on seasons before it, and all variants
+      are scored on the same ${cities[0].forecast.skills.climatology.n_scored} seasons. A variant is
+      used only if it beats climatology; the tick marks the one selected. Read the margins
+      sceptically: five candidates scored on ${cities[0].forecast.skills.climatology.n_scored} seasons,
+      chosen on the same numbers they report.</caption>`;
+
+  const rows = cities.map((c) => {
+    const f = c.forecast;
+    const fn = f.factor_now;
+    return `<tr><td>${h(c.label)}</td>
+      <td>${h(names[fn.variant] ?? fn.variant)}</td>
+      <td class="num">${fmt.num(fn.factor, 3)}</td>
+      <td class="num">${fmt.mm(fn.factor * c.anchor_mm, 0)}</td>
+      <td>${h(fn.reason)}</td></tr>`;
+  }).join('');
+  el('forecast-now').innerHTML = `
+    <thead><tr><th>City</th><th>Model in use</th><th class="num">Factor</th>
+      <th class="num">Implied season total</th><th>Why</th></tr></thead><tbody>${rows}</tbody>`;
 }
 
 /* ---------------- live pricing for Chennai and Bengaluru ---------------- */
@@ -233,7 +287,7 @@ function renderLive() {
       spot: v.spot_mm, remainingNormal: v.remaining_normal_mm, remainingSd: v.remaining_sd_mm,
       factor: liveState.factor, lambda: liveState.lambda, trend: 0,
     });
-    const band = c.forecast.forecast_band;
+    const band = c.forecast_config.forecast_band;
     const low = cdrFairValue({ spot: v.spot_mm, remainingNormal: v.remaining_normal_mm, remainingSd: v.remaining_sd_mm, factor: band[0], lambda: liveState.lambda }).fair;
     const high = cdrFairValue({ spot: v.spot_mm, remainingNormal: v.remaining_normal_mm, remainingSd: v.remaining_sd_mm, factor: band[1], lambda: liveState.lambda }).fair;
     const dep = (fv.fair - c.anchor_mm) / c.anchor_mm;
@@ -259,7 +313,7 @@ function renderLive() {
 
     pathChart(k, el(`live-path-${k}`), el(`live-legend-${k}`));
 
-    const f = c.forecast;
+    const f = c.forecast_config;
     const bits = [];
     for (const [key, val] of Object.entries(f)) {
       if (typeof val !== 'object' || val === null) continue;
@@ -364,19 +418,42 @@ function renderBond() {
     tile('99% CVaR', fmt.num(res.cvar99, 1), 'loss per 100 of face'),
   ].join('');
 
-  // exceedance
+  // exceedance, with the band the 45-season record supports behind it
+  const unc = spec.uncertainty && spec.uncertainty.n_boot ? spec.uncertainty : null;
+  // Compare the quantiles the sliders set, not the interpolated levels: the
+  // browser reads them off a 251-point grid and Python off the fitted function,
+  // so the millimetre values differ in the last decimals.
+  const atDefaults = Math.abs(bondState.attachQ - spec.spec.quantile_attach) < 1e-9
+    && Math.abs(bondState.exhaustQ - spec.spec.quantile_exhaust) < 1e-9
+    && bondState.tenor === spec.spec.tenors[0];
+  const bandRows = unc && atDefaults ? unc.exceedance_band : null;
+  const topProb = Math.max(res.exceedance[1].prob, bandRows ? bandRows[1].hi : 0) * 1.25;
   const f = frame(el('chart-exceedance'), {
-    height: 250, padLeft: 54, xDomain: [0, 100], yDomain: [0, Math.max(0.02, Math.min(1, res.exceedance[1].prob * 1.25))],
+    height: 250, padLeft: 54, xDomain: [0, 100], yDomain: [0, Math.max(0.02, Math.min(1, topProb))],
     xFormat: (v) => fmt.int(v), yFormat: (v) => fmt.pct(v, 1), yLabel: 'probability', xLabel: 'loss per 100 face',
   });
+  if (bandRows) f.band(bandRows.map((r) => [r.loss, r.hi, r.lo]), { color: S[1], opacity: 0.16 });
   f.line(res.exceedance.map((p) => [p.loss, p.prob]), { color: S[1], w: 2.5 });
   f.vline(res.var99, { color: S[2], label: `99% VaR ${fmt.num(res.var99, 0)}` });
-  f.hover(res.exceedance.map((p) => ({ x: p.loss, y: p.prob, payload: p })), (p) =>
-    `loss &gt; ${fmt.num(p.loss, 0)}<br>${fmt.pct(p.prob, 2)}`);
+  f.hover(res.exceedance.map((p, i) => ({ x: p.loss, y: p.prob, payload: { ...p, b: bandRows ? bandRows[i] : null } })), (p) =>
+    `loss &gt; ${fmt.num(p.loss, 0)}<br>${fmt.pct(p.prob, 2)}` +
+    (p.b ? `<br><span style="opacity:.7">band ${fmt.pct(p.b.lo, 2)} – ${fmt.pct(p.b.hi, 2)}</span>` : ''));
   legend(el('legend-exceedance'), [
     { color: S[1], line: true, label: `${bondState.method === 'burn' ? 'burn analysis on observed seasons' : 'fitted distribution, Monte Carlo'} (${fmt.int(res.nPaths)} paths)` },
     { color: S[2], line: true, label: '99% value at risk' },
+    ...(bandRows ? [{ color: S[1], label: `5th–95th percentile over ${fmt.int(unc.n_boot)} resamples of the ${unc.n_seasons} observed seasons` }] : []),
   ]);
+  el('bond-uncertainty').innerHTML = !unc ? '' : (atDefaults
+    ? `<div class="callout"><strong>How much of this is actually known?</strong> Resampling the
+       ${unc.n_seasons} observed seasons, refitting and re-pricing ${fmt.int(unc.n_boot)} times puts
+       expected loss anywhere between <strong>${fmt.pct(unc.expected_loss_annual.p05, 2)}</strong> and
+       <strong>${fmt.pct(unc.expected_loss_annual.p95, 2)}</strong> (point estimate
+       ${fmt.pct(unc.point_estimate.expected_loss_annual, 2)}), and the fair spread between
+       ${fmt.pct(unc.fair_spread.p05, 2)} and ${fmt.pct(unc.fair_spread.p95, 2)}. The exhaustion point
+       sits near a 1-in-100 event estimated from ${unc.n_seasons} years.</div>`
+    : `<p class="hint">The uncertainty band is computed for the configured attachment
+       (${fmt.mm(spec.attach_mm, 0)}) and exhaustion (${fmt.mm(spec.exhaust_mm, 0)}) at the
+       ${spec.spec.tenors[0]}-year tenor; reset the sliders to see it.</p>`);
 
   // trigger placement
   const xs = grid.x, qs = grid.q;
@@ -390,9 +467,15 @@ function renderBond() {
   const sorted = sample.slice().sort((a, b) => a - b);
   sorted.forEach((v, i) => g2.dot(v, (i + 0.5) / sorted.length, { color: 'var(--text-muted)', r: 2.6, ring: false }));
   g2.vline(attach, { color: S[2], label: `attach ${fmt.int(attach)}` });
-  g2.vline(exhaust, { color: S[4], label: `exhaust ${fmt.int(exhaust)}` });
+  g2.vline(exhaust, { color: S[4], dy: 32, label: `exhaust ${fmt.int(exhaust)}` });
+  const pot = (c.pot && c.pot[trigger] || []).find((x) => Math.abs(x.threshold_quantile - 0.95) < 1e-9);
+  if (pot && pot.return_levels['0.99']) {
+    g2.vline(pot.return_levels['0.99'], { color: S[3], dash: '2 3', dy: 16,
+      label: `POT 1-in-100 ${fmt.int(pot.return_levels['0.99'])}` });
+  }
   legend(el('legend-trigger'), [
     { color: S[1], line: true, label: `fitted ${h(c.fits[trigger].best.family)} (AIC ${fmt.num(c.fits[trigger].best.aic, 1)}, KS p ${fmt.num(c.fits[trigger].best.ks_pvalue, 2)})` },
+    ...(pot ? [{ color: S[3], line: true, label: `peaks-over-threshold 1-in-100 (ξ = ${fmt.num(pot.shape_xi, 2)}, ${pot.n_peaks} peaks) — an independent read on the same tail` }] : []),
     { color: 'var(--text-muted)', label: `${sorted.length} observed seasons` },
     { color: S[2], line: true, label: 'attachment' }, { color: S[4], line: true, label: 'exhaustion' },
   ]);
@@ -405,10 +488,11 @@ function renderBond() {
     spread: r.fair_spread, el: r.expected_loss_annual, pa: r.prob_attach, pe: r.prob_exhaust,
     var99: r.var99, se: r.standard_error,
   })).sort((a, b) => a.param - b.param || a.method.localeCompare(b.method));
+  el('bond-reference-note').innerHTML = `Python reference run for ${h(c.label)} ·
+    ${h(bondState.bond)} · ${bondState.tenor}-year · attachment ${fmt.mm(spec.attach_mm, 0)} /
+    exhaustion ${fmt.mm(spec.exhaust_mm, 0)} (the config defaults, which the sliders above start
+    from). Burn, Monte Carlo and quadrature should agree within sampling error.`;
   el('bond-reference').innerHTML = `
-    <caption>Python reference run for ${h(c.label)} · ${h(bondState.bond)} · ${bondState.tenor}-year ·
-      attachment ${fmt.mm(spec.attach_mm, 0)} / exhaustion ${fmt.mm(spec.exhaust_mm, 0)} (the config defaults,
-      which the sliders above start from). Burn, Monte Carlo and quadrature should agree within sampling error.</caption>
     <thead><tr><th>Method</th><th class="num">Rule parameter</th><th class="num">Expected loss</th>
       <th class="num">Fair spread</th><th class="num">P(attach)</th><th class="num">P(exhaust)</th>
       <th class="num">99% VaR</th><th class="num">MC std. error</th></tr></thead>
@@ -450,6 +534,7 @@ function premiumTable() {
 export function renderWeather(data) {
   W = data;
   contractCards();
+  forecastCard();
   mumbaiHeadline();
   monthlyChart();
   pathChart('mumbai', el('chart-path-mumbai'), el('legend-path-mumbai'));

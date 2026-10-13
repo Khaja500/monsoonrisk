@@ -17,6 +17,22 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+def black_scholes(spot: np.ndarray, strike: float, r: float, q: float, sigma: float,
+                  tau: float, kind: str) -> np.ndarray:
+    """European value - used to smooth the step before expiry, not to price."""
+    from scipy.stats import norm
+
+    spot = np.asarray(spot, dtype=float)
+    if tau <= 0:
+        return payoff(spot, strike, kind)
+    sd = sigma * np.sqrt(tau)
+    d1 = (np.log(np.maximum(spot, 1e-12) / strike) + (r - q + 0.5 * sigma ** 2) * tau) / sd
+    d2 = d1 - sd
+    if kind == "put":
+        return strike * np.exp(-r * tau) * norm.cdf(-d2) - spot * np.exp(-q * tau) * norm.cdf(-d1)
+    return spot * np.exp(-q * tau) * norm.cdf(d1) - strike * np.exp(-r * tau) * norm.cdf(d2)
+
+
 def payoff(spot: np.ndarray, strike: float, kind: str) -> np.ndarray:
     if kind == "put":
         return np.maximum(strike - spot, 0.0)
@@ -54,12 +70,21 @@ def _tree_params(r: float, q: float, sigma: float, dt: float) -> tuple[float, fl
 
 def price_tree(s0: float, strike: float, r: float, q: float, sigma: float, maturity: float,
                steps: int, kind: str = "put", penalty: float = 0.0,
-               style: str = "game", collect: bool = False) -> dict:
+               style: str = "game", collect: bool = False, smooth: bool = True) -> dict:
     """One backward induction over a CRR tree.
 
     `style` selects the recursion: "game" (both rights), "american" (holder
     only) or "european" (neither).  With `collect` the holder's exercise region
     and the issuer's cancellation region are recorded per time step.
+
+    `smooth` replaces the one-step continuation value at the penultimate layer
+    with the European value (Broadie-Detemple smoothing), which removes the
+    oscillation caused by where the payoff kink falls between nodes.  Measured
+    here it changes this contract by under 0.01 points: the oscillation that
+    actually matters comes from the free boundary moving across the lattice at
+    every step, not from the terminal kink, and `averaged_price` is what deals
+    with that.  It is skipped for the European style so that the comparison
+    against the closed form stays an honest test of the lattice.
     """
     dt = maturity / steps
     u, d, p, disc = _tree_params(r, q, sigma, dt)
@@ -72,8 +97,12 @@ def price_tree(s0: float, strike: float, r: float, q: float, sigma: float, matur
 
     exercise_boundary, cancellation_band = [], []
     for i in range(steps - 1, -1, -1):
-        cont = disc * (p * values[:-1] + (1 - p) * values[1:])
-        spot = spot[:-1] / u
+        if smooth and style != "european" and i == steps - 1:
+            spot = spot[:-1] / u
+            cont = black_scholes(spot, strike, r, q, sigma, dt, kind)
+        else:
+            cont = disc * (p * values[:-1] + (1 - p) * values[1:])
+            spot = spot[:-1] / u
         g = payoff(spot, strike, kind)
         if style == "european":
             values = cont
@@ -138,6 +167,27 @@ def price_game(s0: float, strike: float, r: float, q: float, sigma: float, matur
         exercise_boundary=game.get("exercise_boundary", []),
         cancellation_band=game.get("cancellation_band", []),
         greeks=g, checks=checks)
+
+
+def averaged_price(s0: float, strike: float, r: float, q: float, sigma: float, maturity: float,
+                   kind: str = "put", penalty: float = 0.0, steps_list: list[int] | None = None,
+                   style: str = "game") -> dict:
+    """Mean price over a spread of step counts, with the spread reported.
+
+    A double-obstacle lattice oscillates in the step count because the free
+    boundary sits between nodes differently at every resolution; on the worst
+    contract priced here the swing is about 2.5% between neighbouring step
+    counts and does not settle.  Averaging over a band of resolutions is the
+    standard answer, and the standard deviation across that band is a fair
+    statement of how much numerical uncertainty is left.
+    """
+    steps_list = steps_list or list(range(1000, 2001, 100))
+    values = [price_tree(s0, strike, r, q, sigma, maturity, int(n), kind, penalty,
+                         style)["price"] for n in steps_list]
+    arr = np.asarray(values, dtype=float)
+    return {"price": float(arr.mean()), "sd": float(arr.std(ddof=1)),
+            "min": float(arr.min()), "max": float(arr.max()),
+            "steps": [int(n) for n in steps_list], "values": [float(v) for v in values]}
 
 
 def convergence(s0: float, strike: float, r: float, q: float, sigma: float, maturity: float,

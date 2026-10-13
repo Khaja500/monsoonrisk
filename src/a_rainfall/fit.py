@@ -25,6 +25,64 @@ FAMILIES = {
     "WET_DAYS": ["norm", "skewnorm"],
 }
 QUANTILES = [0.02, 0.05, 0.10, 0.20, 0.50, 0.80, 0.90, 0.95, 0.98]
+POT_QUANTILES = [0.90, 0.95, 0.98, 0.99]
+
+
+def peaks_over_threshold(daily: pd.Series, window: tuple[str, str], threshold_q: float = 0.95,
+                         run_days: int = 3, horizon_days: int = 3) -> dict | None:
+    """Generalised Pareto fit to independent exceedances of a high threshold.
+
+    An annual-maxima GEV throws away every large event in a season except the
+    largest, which is a costly thing to do with 45 seasons.  Peaks over
+    threshold uses them all: it declusters the season's rolling `horizon_days`
+    rainfall into independent peaks at least `run_days` apart, fits a GPD to
+    the exceedances, and converts the result back to return levels for the
+    annual maximum via the exceedance rate.  Reported as a cross-check on the
+    GEV tail, not as a replacement for it.
+    """
+    from .indices import season_mask
+
+    season = daily[season_mask(daily.index, *window)]
+    if len(season) < 500:
+        return None
+    rolled = season.rolling(horizon_days, min_periods=1).sum()
+    threshold = float(np.quantile(rolled.to_numpy(), threshold_q))
+
+    # decluster: keep local maxima separated by at least run_days
+    values, dates = rolled.to_numpy(), rolled.index
+    peaks, i = [], 0
+    while i < len(values):
+        if values[i] <= threshold:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(values) and (dates[j + 1] - dates[j]).days <= run_days:
+            j += 1
+        peaks.append(float(values[i:j + 1].max()))
+        i = j + 1
+    excess = np.array([p - threshold for p in peaks])
+    if len(excess) < 25:
+        return None
+
+    shape, loc, scale = stats.genpareto.fit(excess, floc=0.0)
+    n_seasons = len(set(season.index.year))
+    rate = len(excess) / n_seasons                       # peaks per season
+    levels = {}
+    for q in POT_QUANTILES:
+        # P(annual max <= x) = q  <=>  rate * P(excess > x - u) = -ln(q)
+        p_exceed = -np.log(q) / rate
+        if not 0 < p_exceed < 1:
+            continue
+        levels[str(q)] = float(threshold + stats.genpareto.ppf(1 - p_exceed, shape, loc=0.0,
+                                                              scale=scale))
+    return {
+        "threshold_mm": threshold, "threshold_quantile": threshold_q,
+        "n_peaks": int(len(excess)), "peaks_per_season": float(rate),
+        "shape_xi": float(shape), "scale_beta": float(scale),
+        "return_levels": levels,
+        "note": ("GPD on declustered peaks of the %d-day rolling total; return levels are "
+                 "for the seasonal maximum" % horizon_days),
+    }
 
 
 @dataclass

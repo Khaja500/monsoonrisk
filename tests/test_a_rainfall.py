@@ -64,3 +64,27 @@ def test_window_selection_prefers_fewest_months_above_share():
                                          1991, 2020, min_share=0.75)
     assert window == ["06-01", "09-30"]
     assert {t["months"] for t in table} == {6, 4}
+
+
+def test_peaks_over_threshold_returns_increasing_return_levels():
+    """Heavier tail must give higher return levels at higher return periods."""
+    import numpy as np
+    from src.a_rainfall.fit import peaks_over_threshold
+
+    rng = np.random.default_rng(11)
+    idx = pd.date_range("1981-01-01", "2025-12-31")
+    rain = pd.Series(rng.gamma(0.6, 8.0, len(idx)), index=idx)
+    pot = peaks_over_threshold(rain, ("06-01", "09-30"), threshold_q=0.90)
+    assert pot is not None
+    levels = [pot["return_levels"][k] for k in sorted(pot["return_levels"], key=float)]
+    assert all(b > a for a, b in zip(levels, levels[1:]))
+    assert pot["n_peaks"] >= 25
+    assert pot["threshold_mm"] > 0
+
+
+def test_peaks_over_threshold_declines_to_fit_without_exceedances():
+    """A series with no variation has no peaks; return None rather than crash."""
+    from src.a_rainfall.fit import peaks_over_threshold
+
+    frame = synthetic_frame()
+    assert peaks_over_threshold(frame["rain_mm"], ("06-01", "09-30")) is None

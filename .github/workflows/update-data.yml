@@ -1,0 +1,69 @@
+# Refresh the weather data while a season is running.
+#
+# Only Part 1 is updated.  Chennai and Bengaluru have live seasons, so their
+# spot and fair value move every day; Mumbai's season is closed and Part 2's
+# market inputs are entered by hand (every programmatic NIFTY source was
+# blocked), so neither is touched here.
+#
+# The job refuses to commit data that has not actually moved forward: if the
+# newest observation is older than the guard allows, it fails loudly rather
+# than republishing a stale number under a fresh date.
+
+name: Update weather data
+
+on:
+  schedule:
+    - cron: "30 4 * * *"      # 10:00 IST, after IMD's morning update
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh the current season and the climate indices
+        env:
+          MONSOONRISK_REFRESH: "1"
+        run: |
+          python scripts/refresh_current_season.py
+
+      - name: Rebuild the site data
+        env:
+          MONSOONRISK_REFRESH: "1"
+          MONSOONRISK_NBOOT: "200"
+        run: |
+          python scripts/build_weather_data.py
+
+      - name: Check the data actually moved
+        run: python scripts/check_freshness.py --max-age-days 6
+
+      - name: Run the tests
+        run: python -m pytest tests/ -q
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  "monsoonrisk-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/weather.json data/processed data/raw/climate data/raw/power
+          if git diff --cached --quiet; then
+            echo "no change"
+            exit 0
+          fi
+          git commit -m "Refresh weather data ($(date -u +%Y-%m-%d))"
+          git push

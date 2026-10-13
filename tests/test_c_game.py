@@ -121,3 +121,22 @@ def test_payoff_helpers():
     assert payoff(np.array([110.0]), 100.0, "call")[0] == 10.0
     with pytest.raises(ValueError):
         payoff(np.array([1.0]), 1.0, "straddle")
+
+
+def test_averaged_lattice_price_reports_its_own_spread():
+    """The double-obstacle lattice oscillates; averaging must come with the spread."""
+    from src.c_game.binomial import averaged_price
+
+    out = averaged_price(S0, 0.95 * S0, R, Q, VOL, T, "put", 0.01 * S0,
+                         steps_list=list(range(600, 1201, 200)))
+    assert out["min"] <= out["price"] <= out["max"]
+    assert out["sd"] > 0
+    assert len(out["values"]) == len(out["steps"])
+
+
+def test_terminal_smoothing_does_not_change_the_answer_materially():
+    """Recorded because it is a negative result worth keeping: the oscillation
+    on the hard contract comes from the free boundary, not the payoff kink."""
+    raw = price_tree(S0, 0.95 * S0, R, Q, VOL, T, 800, "put", 0.01 * S0, "game", smooth=False)
+    smoothed = price_tree(S0, 0.95 * S0, R, Q, VOL, T, 800, "put", 0.01 * S0, "game", smooth=True)
+    assert abs(raw["price"] - smoothed["price"]) < 0.05

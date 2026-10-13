@@ -1,6 +1,10 @@
 # Plan: Pricing Monsoon-Linked Bonds and Game Options
 
-Working title: **MonsoonRisk**. Companion document: `spec.md` (technical detail).
+Working title: **MonsoonRisk**. Companion document: `Pricingspec.md` (technical detail).
+
+**Status: delivered and live.** Repository <https://github.com/Khaja500/monsoonrisk>,
+site <https://khaja500.github.io/monsoonrisk/>. Last revised 13 October 2026, after
+the first round of post-delivery improvements described in section 7.
 
 ## 1. Objective
 
@@ -10,124 +14,187 @@ Build a transparent, reproducible pricing toolkit in Python with three modules:
 - **Module B: Weather bonds and cat bonds.** Prices rainfall-linked bonds (principal-at-risk and coupon-linked) for the three cities, using Module A's distributions.
 - **Module C: Israeli (game) option on NIFTY 50.** Prices an American-style option that the issuer can also cancel for a penalty, which is a Dynkin game. Independent of Modules A and B.
 
-## 2. Scope
+All three are built, tested and published. The web front end, listed in the original
+plan as "if time allows" and first in the cut order, was built: both parts re-price
+in the browser from the same models.
 
-**In scope**
-- Rainfall indices for Mumbai (modelled on the traded RAINMUMBAI contract) and constructed analogues for Chennai and Bengaluru.
-- A baseline method (burn analysis plus fitted distributions) for Module B, and a daily rainfall simulator as an upgrade.
-- Game option solver with several methods that cross-check each other, applied to NIFTY 50.
-- A short methodology write-up and, if time allows, a small web front end.
+## 2. Scope as delivered
 
-**Out of scope (decided in discussion)**
+**In scope and done**
+- Rainfall indices for Mumbai (the traded RAINMUMBAI contract) and constructed analogues for Chennai and Bengaluru, on IMD gridded daily rainfall 1981–2025 plus a provisional 2026.
+- Burn analysis, quadrature and Monte Carlo for Module B, under three risk-premium rules.
+- Four methods for Module C: binomial tree, Longstaff–Schwartz, Crank–Nicolson with two obstacles, and a rigorous bracket.
+- A methodology write-up (`docs/notes/methodology.md`), an assumption log (`docs/notes/assumptions.md`) and a web front end (`docs/`).
+
+**Added after the original plan**
+- **A seasonal forecast with content** (`src/b_bonds/forecast.py`). The original design took the forecast factor from IMD's categorical outlook, whose category centre is 1.00 — which makes the forecast term identically zero and the future identical to spot. Replaced with a regression on climate state known before the season opens (Niño 3.4, Dipole Mode Index), scored out of sample against climatology, with the variant selected walk-forward so neither the coefficients nor the choice of model sees the season being priced.
+- **Parameter uncertainty on every bond curve** (`price_with_parameter_uncertainty`). Resample the 45 observed seasons, refit, re-price.
+- **A peaks-over-threshold tail cross-check** (`peaks_over_threshold`), because annual maxima discard every large event in a season but the largest.
+- **An averaged-lattice price for Module C** (`averaged_price`), because a double-obstacle lattice oscillates in the step count and a single fine tree is not a reference value.
+- **A scheduled refresh** of the current season (`.github/workflows/update-data.yml`) with a freshness guard that fails rather than republishing stale data under a new date.
+
+**Out of scope, and still out**
 - A weather-linked callable/puttable bond priced as a game option (the "bridge" idea). It needs its own pricing-measure argument and would dominate the project.
-- Day-to-day weather forecasting. Forecast data is only an optional update layer, not a core input.
+- Day-to-day weather forecasting.
 - Trading, investment advice, or calibration to live bond prices. India has no cat bond market, so Module B is model-based.
 
-**Honesty note.** Claims that something is "new" or "not freely available" come from the searches done in this conversation. They mean "I did not find it," not "it does not exist."
+**Dropped from the original plan, with reasons**
+- **The daily rainfall simulator** (old Phase 4). Not built. The baseline distribution layer plus the POT tail cross-check covers what Module B needs; the simulator earns its place only when a path-dependent product is priced. Still the first item in section 7.
+- **Pathwise dual bounds for Module C** (Kühn, Kyprianou and van Schaik). Not built, and the reason is recorded rather than hidden: the paper was unavailable, and the obvious shortcut — freeze one side's policy, optimise the other by regression — produces a biased estimate whose bias runs the wrong way on the minimising side, so it is not a bound. A rigorous analytic bracket is published instead.
+- **A Heston or local-volatility extension.** No free NSE option-chain history was obtainable, so any such model would carry a free parameter dressed as a calibration.
+
+**Honesty note.** Claims that something is "new" or "not freely available" mean "I did not find it", not "it does not exist". Where a source was tried and failed, the failure is recorded in `data/raw/README.md` and in the data register on the site.
 
 ## 3. Modules at a glance
 
 | | Module A | Module B | Module C |
 |---|---|---|---|
-| Purpose | Rainfall indices and distributions | Price weather and cat bonds | Price game option on NIFTY 50 |
-| Main inputs | IMD gridded daily rainfall | Distributions from A, bond terms, discount rate, risk-premium rule | NIFTY 50 history, India VIX, T-bill yield, dividend yield, contract terms |
-| Main outputs | Season index tables, fitted distributions, optional simulator | Price, fair spread, expected loss, attachment/exhaustion probabilities, loss curves | Price with error bars, exercise and cancellation boundaries, Greeks |
+| Purpose | Rainfall indices, distributions and tails | Price the index future and weather/cat bonds | Price game option on NIFTY 50 |
+| Main inputs | IMD gridded daily rainfall; NOAA Niño 3.4 and DMI | Distributions from A, contract terms, discount rate, risk-premium rule, seasonal forecast | NIFTY 50 level, India VIX, T-bill yield, dividend yield, contract terms |
+| Main outputs | Season index tables, fitted distributions, POT tails, forecast skill | Fair value and backtest for the future; price, fair spread, expected loss and uncertainty bands for bonds | Price with numerical uncertainty, boundaries, Greeks, four-method comparison |
 | Depends on | None | A | None |
 
-## 4. Repository layout
+## 4. Repository layout (as built)
 
 ```
 monsoonrisk/
-  config/            # cities.yaml, bonds.yaml, game_option.yaml
-  data/raw/          # untouched downloads, never edited
-  data/processed/    # derived tables (csv/parquet)
+  config/            cities.yaml, bonds.yaml, game_option.yaml, forecasts.yaml
+  data/raw/          downloads, not committed except the climate and POWER caches
+  data/processed/    extracted daily series (committed)
   src/
-    a_rainfall/      # data.py, indices.py, fit.py, simulate.py
-    b_bonds/         # contracts.py, premium.py, pricer.py, validate.py
-    c_game/          # binomial.py, lsm.py, dual.py, nifty.py, validate.py
-    common/          # discounting.py, stats.py, plotting.py
-  tests/
-  notebooks/
-  app/               # optional web front end
-  docs/              # methodology write-up, figures
-  plan.md  spec.md  README.md
+    a_rainfall/      data.py, indices.py, fit.py, climate.py
+    b_bonds/         contracts.py, premium.py, pricer.py, futures.py, forecast.py
+    c_game/          binomial.py, lsm.py, fd.py, dual.py, nifty.py
+    common/          paths.py, discounting.py, stats.py
+  scripts/           download_imd.py, extract_cities.py, refresh_current_season.py,
+                     build_weather_data.py, build_game_data.py, check_freshness.py
+  tests/             45 tests
+  docs/              the site (GitHub Pages) + notes/methodology.md, notes/assumptions.md
+  .github/workflows/ update-data.yml
+  Pricingplan.md  Pricingspec.md  README.md
 ```
 
-## 5. Phases
+`src/a_rainfall/simulate.py` and `src/c_game/dual.py`'s dual-bound half are the two
+pieces of the original layout that do not exist as specified; see section 2.
 
-Effort figures are rough guesses for one person working part-time; adjust to your schedule.
+## 5. Phases and what came out of them
 
-### Phase 0: Setup and data check (about 0.5 week)
-- Create the repo, environment (Python 3.11+, numpy, scipy, pandas, xarray, imdlib, matplotlib, pytest; QuantLib-Python optional) and config files.
-- Confirm `imdlib` downloads rainfall for 1901 to the latest year and extracts one city cell.
-- **Exit:** one city's daily rainfall series loads and plots.
+| Phase | Planned | Outcome |
+|---|---|---|
+| 0 Setup and data check | repo, environment, one city loading | Done. `imdlib` downloads and reads IMD 0.25° grids; 7 of 45 years needed a retry at lower parallelism. |
+| 1 Module A baseline | indices and distributions for three cities | Done. Mumbai's **grid** seasonal normal is 2,723.5 mm against the contract's 2,206.7 mm — a 23% gap, handled by a per-source bias correction rather than ignored. Bengaluru's season window was selected from data: 1 Jun – 30 Nov, 78.7% of annual rainfall. |
+| 2 Module B v1 | contracts, three premium rules, three methods | Done. Burn, quadrature and Monte Carlo agree within sampling error (4.03% / 4.11% / 4.12% expected loss on the default Mumbai flood bond). |
+| 3 Module C | tree, Monte Carlo, bounds | Done, with finite differences replacing the dual bounds. All limiting cases pass. |
+| 4 Upgrades | daily simulator, finite difference, Heston | Partly. Finite differences built; simulator and Heston not, for the reasons in section 2. |
+| 5 Packaging | write-up, README, front end | Done, including the front end that was first in the cut order. |
+| 6 Post-delivery (new) | forecast with content, uncertainty bands, tail cross-check, lattice averaging, scheduled refresh | Done. See section 7 for what the forecast work actually found. |
 
-### Phase 1: Module A baseline (about 1.5 weeks)
-- Pull gridded rainfall for the cells nearest Mumbai, Chennai and Bengaluru.
-- Build the daily long-period average (LPA) from 1991 to 2020 and the index builder (cumulative deviation, seasonal total, heaviest 1-day and 3-day rainfall).
-- Choose each city's season window from data (see spec section A.4).
-- Fit and select distributions for each index; produce diagnostics.
-- **Exit:** a clean season-index table per city and a fitted distribution with goodness-of-fit plots. Mumbai's seasonal LPA is compared against the reported 2,206.7 mm figure.
+## 6. Findings
 
-### Phase 2: Module B version 1 (about 2 weeks)
-- Implement contracts (principal-at-risk bond, coupon-linked bond, optional index future) and three risk-premium rules.
-- Price from burn analysis and from fitted distributions, with analytic and Monte Carlo methods.
-- Run all three cities; produce sensitivity tables and a loss-exceedance plot per city.
-- **Exit:** all tests in spec section B.9 pass; the three methods agree within stated tolerances.
+These are the results, including the ones that did not go the way the plan assumed.
 
-### Phase 3: Module C (about 2.5 weeks)
-- Binomial game-option solver, then Longstaff-Schwartz Monte Carlo, then pathwise dual bounds.
-- Validate on limiting cases (see spec section C.6), then apply to NIFTY 50 with market-derived inputs.
-- **Exit:** methods agree, convergence plots are produced, and a price table over strike, tenor, volatility and penalty is generated.
+**The model missed RAINMUMBAI by 36.85 mm, or ₹1,843 a lot.** The September 2026
+contract settled at 2,243.55 mm (the mean of IMD's Colaba 1,957.1 and Santacruz
+2,530.0). Climatology quoted the anchor, 2,206.70 mm, before the season opened.
 
-### Phase 4: Upgrades (stretch, about 2 weeks)
-- Module A daily rainfall simulator with a season-level factor, validated against Phase 1's baseline.
-- Re-price Module B with simulated seasons and compare.
-- Optional: finite-difference solver for Module C; Heston extension for NIFTY.
+**Under climatology every contract month prices at the anchor.** The expected
+deviation is zero whatever the horizon, so June, July, August and September all
+quote 2,206.7 — and settled at 2,025.7, 2,699.4, 2,480.0 and 2,243.55. The future
+is a martingale under climatology, which is why a forecast term with content
+matters so much.
 
-### Phase 5: Packaging (about 1.5 weeks)
-- Methodology write-up, README, reproducibility script, and optional web front end.
+**The seasonal forecast has little skill, and for Chennai none at all.** Scored
+out of sample over 25 seasons against climatology:
 
-## 6. Cut order if time runs short
+| City | Best variant | RMSE skill vs climatology | Selected |
+|---|---|---|---|
+| Mumbai | linear trend | +5.4% | trend |
+| Bengaluru | linear trend | +2.7% | trend |
+| Chennai | — every variant is worse | −0.9% (best: ENSO) | climatology |
 
-1. Web front end
-2. Phase 4 upgrades (simulator, finite difference, Heston)
-3. Dual-bound method in Module C
-4. Multi-city basket bond and index future in Module B
+Niño 3.4 on its own is *worse* than climatology for Mumbai and Bengaluru, and the
+Chennai NE-monsoon ratio has an out-of-sample RMSE of 0.59 — ±59% of the long-period
+average. The honest conclusion is that for Chennai, IMD's categorical band really is
+the best available statement, and the model says so rather than inventing a tilt. The
+selection margin is also weak evidence: five candidates scored on 25 seasons, chosen
+on the same scores they report.
 
-Never cut: Module A baseline, Module B version 1 with tests, Module C binomial and Monte Carlo solvers with validation.
+**2026 was a strong El Niño.** Niño 3.4 reached +2.09 °C in September 2026 and the
+JAS ONI +2.16, which is the backdrop to an all-India monsoon 12.6% below normal, the
+worst since 2015, and Karnataka 35% below normal, its worst in 55 years. The model
+does not get to use that as an excuse — it is exactly the state the ENSO predictor
+was given and still failed to beat climatology with.
 
-## 7. Risks and mitigations
+**The bonds are far less precisely priced than one curve suggests.** The default
+Mumbai flood bond has an expected loss of 4.25%, and the 45-season record supports
+anywhere between **1.50% and 7.24%**; the fair spread band is 2.8% to 11.3%. This is
+now drawn on the site rather than left in the exported data.
 
-| Risk | Mitigation |
+**The at-the-money Israeli put is worth exactly the penalty.** The holder's payoff is
+zero and the issuer's time value is not, so the issuer cancels at once: the price is
+δ, in a straight line, until δ reaches 4.44% of spot, above which the cancellation
+right is worthless and the price is the American value. Where that cap binds, vega,
+rho and theta are all zero.
+
+**The issuer's cancellation region collapses onto the strike.** Once the cap binds on
+a region the value there is `G + δ`, which is linear away from the kink, so
+continuation is linear too and the strict inequality survives only at the kink.
+
+**Lattice oscillation, not method disagreement.** The published 3.5% gap between
+Monte Carlo and the tree on the out-of-the-money contract was mostly an artefact of
+comparing single resolutions. Averaging the tree over a band of step counts gives
+154.6 ± 1.3 where single trees ranged 152.9 to 157.3. Smoothing the terminal payoff
+(Broadie–Detemple) changes the answer by under 0.01 — a negative result worth
+keeping, because it locates the oscillation in the free boundary rather than the
+payoff kink.
+
+## 7. Backlog, in priority order
+
+1. **A daily rainfall simulator** (old Phase 4, spec A.7). The only route to pricing anything path-dependent, and a better tail for `MAX3` than 45 annual maxima.
+2. **Station data instead of the grid.** The contract settles on Colaba and Santacruz; the model prices a grid cell 23% wetter, patched with a factor that fixes the mean and not the shape. The flood trigger is entirely a shape-of-the-tail question. Blocked on IMD data-portal access.
+3. **Realised volatility for Module C.** Still not computed: Yahoo returns HTTP 429, NSE 503 and niftyindices 302. `src/c_game/nifty.py` picks up `data/raw/nifty50_close.csv` automatically if a `date,close` file is dropped there, which is the manual route until a source answers.
+4. **Intra-season predictability.** Fair value mid-season is spot plus remaining climatology. Whether season-to-date carries information about the remainder is testable on 45 years and has never been tested here.
+5. **Multi-city basket bond** on a Gaussian copula. The rank correlations are already computed (Mumbai–Chennai ρ = 0.30, p = 0.047; the other two pairs are not significant).
+6. **Dual bounds for Module C**, properly, from the Kühn–Kyprianou–van Schaik construction. Academic completeness: the tree and finite differences already agree to under 0.3% on the well-behaved contracts.
+
+## 8. Risks: which ones materialised
+
+| Risk | Outcome |
 |---|---|
-| Gridded data does not match station readings (RAINMUMBAI settles on Santacruz and Colaba stations) | Compare Mumbai's seasonal LPA with the reported figure; test neighbouring cells; document the gap |
-| No market prices for Indian cat bonds or analogue indices | Present results as model-based; show sensitivity to the risk-premium rule instead of claiming a "right" price |
-| Short history makes tail estimates unreliable | Report confidence intervals via bootstrap; compare fitted-distribution results against burn analysis |
-| Daily rainfall models can understate variability | Include a season-level factor; check variance of simulated seasonal totals against history |
-| Game option has no market to calibrate against | Validate with limiting cases and cross-method agreement, not market fit |
-| Data sources change or become unavailable | Cache raw downloads and record provenance in `data/raw/README` |
-| Scope creep | Follow the cut order above; the bridge product stays out of scope |
+| Gridded data does not match station readings | **Materialised, as expected.** 23% gap at Mumbai. Handled by a per-source bias correction; documented as fixing the mean, not the shape. |
+| No market prices for Indian cat bonds | **Materialised.** All bond output is reported as sensitivities to the risk-premium rule, never as a price. |
+| Short history makes tail estimates unreliable | **Materialised and now quantified.** Expected loss 4.25% with a 1.5–7.2% bootstrap band. |
+| Daily rainfall models understate variability | Not reached — the simulator was not built. |
+| Game option has no market to calibrate against | **Materialised.** Validated by limiting cases and cross-method agreement only. |
+| Data sources change or become unavailable | **Materialised twice.** IMD's real-time grid timed out; every bulk NIFTY source refused. Both are recorded in the data register rather than worked around silently. |
+| Scope creep | Contained. The bridge product stayed out. |
 
-## 8. Definition of done
+## 9. Definition of done: status
 
-- All three modules run end to end from a single script with fixed seeds.
-- Every test in `spec.md` passes.
-- Module B outputs exist for all three cities, with sensitivity tables to attachment, exhaustion and risk-premium parameters.
-- Module C outputs include methods that agree, convergence plots, boundaries and Greeks.
-- The write-up states every assumption, data source and known limitation.
+- [x] All three modules run end to end from scripts with fixed seeds.
+- [x] Every test in `Pricingspec.md` passes — 45 tests.
+- [x] Module B outputs exist for all three cities with sensitivity tables, and now with parameter-uncertainty bands.
+- [x] Module C outputs include four methods that agree, convergence plots, boundaries and Greeks.
+- [x] The write-up states every assumption, data source and known limitation, including the ones that failed.
 
-## 9. Open decisions for you
+## 10. Decisions that were open, and how they were settled
 
-1. Bond tenors to price (suggested: 1 and 3 years).
-2. Risk-premium rule to present as the default (spec offers three).
-3. Whether Bengaluru's season window is chosen purely from data (suggested) or by a rule you prefer.
-4. Whether to include the optional index future for Mumbai as a sanity check against live prices (needs price data; availability not verified).
+1. **Bond tenors.** 1 and 3 years, both priced.
+2. **Default risk-premium rule.** R2, the Wang transform at λ = 0.25, which implies about 1.7× expected loss — in the range quoted for catastrophe bonds. All three rules are always shown together.
+3. **Bengaluru's season window.** Chosen from data, as suggested: the fewest months capturing at least 75% of annual rainfall, which is 1 Jun – 30 Nov at 78.7%.
+4. **The Mumbai index future as a sanity check.** Done, and it became the centre of the project: it is the one place where a model number meets a real settlement.
 
-## 10. What was verified while planning
+## 11. Verification log
 
-- `imdlib` is a Python package that downloads IMD gridded rainfall and temperature, reads them into xarray, and exports CSV or NetCDF; it also handles real-time gridded data.
-- IMD's gridded rainfall is 0.25 degrees, 1901 to present.
-- RAINMUMBAI: cumulative deviation from the long-period average over June to September, benchmarked on 1991 to 2020, settled on IMD Santacruz and Colaba data, with a multiplier of Rs 50 per mm.
-- For the Tamil Nadu and Puducherry subdivision, October to December supplies about 48% of annual rainfall (IMD reports).
-- Not verified: IMD station-level data access, ENSO/IOD data access, free historical NSE option-chain data, any live RAINMUMBAI price history.
+**Verified in use**
+- `imdlib` downloads IMD 0.25° gridded rainfall, 1901 to the latest published year, and reads it into xarray.
+- RAINMUMBAI: cumulative deviation from the 1991–2020 long-period average over June–September, anchored at 2,206.7 mm, settled on the mean of IMD Santacruz and Colaba, ₹50 per mm, monthly contracts June–September.
+- NOAA PSL publishes Niño 3.4 monthly to the previous month, and the HadISST Dipole Mode Index with a lag of several months.
+- The Tamil Nadu and Puducherry October–December season supplies about 48% of annual rainfall; the Chennai (Nungambakkam) NE-monsoon normal is 75 cm.
+
+**Tried and failed, on 13 October 2026**
+- IMD real-time gridded rainfall: connection to `imdpune.gov.in` timed out.
+- IMD station-level data (Colaba, Santacruz, Nungambakkam): no machine-readable access found; published seasonal totals taken from IMD-sourced reports instead.
+- Bulk NIFTY 50 history: Yahoo chart API HTTP 429, NSE 503, niftyindices 302, stooq behind a proof-of-work challenge.
+- NSE option-chain history: not found free, so no Heston calibration.
+- RAINMUMBAI daily quote history: not published in any retrievable form, which is why the comparison is against the realised settlement rather than intraday marks.

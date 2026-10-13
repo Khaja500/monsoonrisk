@@ -214,21 +214,24 @@ function methodTable() {
   el('method-table').innerHTML = `
     <thead><tr><th>Contract</th><th class="num">Tree, ${fmt.int(G.methods[0].steps)} steps</th>
       <th class="num">Monte Carlo</th><th class="num">MC vs tree</th>
-      <th class="num">Finite difference</th><th class="num">FD vs tree (3,000)</th>
+      <th class="num">Finite difference</th><th class="num">FD vs averaged tree</th>
       <th class="num">Rigorous bracket</th></tr></thead>
     <tbody>${G.methods.map((m) => `<tr>
       <td>${fmt.pct(m.strike_pct, 0)} strike · δ ${fmt.pct(m.penalty_pct, 0)}</td>
       <td class="num">${fmt.num(m.tree_matched_steps, 2)}</td>
       <td class="num">${fmt.num(m.lsm, 2)} <span class="hint">± ${fmt.num(1.96 * m.lsm_se, 2)}</span></td>
       <td class="num" style="color:${Math.abs(m.lsm_vs_tree_pct) > 2 ? 'var(--warn)' : 'inherit'}">${fmt.signed(m.lsm_vs_tree_pct, 2)}%</td>
-      <td class="num">${fmt.num(m.pde, 2)}</td>
+      <td class="num">${fmt.num(m.pde, 2)} <span class="hint">vs ${fmt.num(m.tree_averaged, 1)} ± ${fmt.num(m.tree_averaged_sd, 1)}</span></td>
       <td class="num" style="color:${Math.abs(m.pde_vs_tree_pct) > 2 ? 'var(--warn)' : 'inherit'}">${fmt.signed(m.pde_vs_tree_pct, 2)}%</td>
       <td class="num">[${fmt.num(m.bracket_lower, 0)}, ${fmt.num(m.bracket_upper, 0)}] ${m.tree_inside_bracket ? '✓' : '✗'}</td>
     </tr>`).join('')}</tbody>
-    <caption>The out-of-the-money put with a 1% penalty is the hard case for every scheme: its free
-      boundary sits on the payoff kink, so the tree oscillates with the step count and the
-      regression has to resolve a narrow cancellation region. The disagreement there is about 3.5%
-      and is left visible.</caption>`;
+`;
+  el('method-note').innerHTML = `A single fine tree is not a reference value: a double-obstacle
+    lattice oscillates with the step count because the free boundary sits between nodes differently
+    at every resolution. The tree it is compared against is averaged over eleven step counts from
+    1,500 to 2,500, with its spread shown, which is the numerical uncertainty that actually remains.
+    The out-of-the-money put at a 1% penalty is the hard case for every scheme &mdash; its free
+    boundary sits on the payoff kink &mdash; and its disagreement is left visible.`;
 }
 
 function validation() {

@@ -20,6 +20,7 @@ class FrozenDist:
 
 
 def gamma_dist(mean=340.0, sd=85.0, n=60, seed=3):
+    """A frozen gamma with a sample drawn from it, standing in for a fitted index."""
     shape = (mean / sd) ** 2
     scale = sd ** 2 / mean
     dist = stats.gamma(shape, scale=scale)
@@ -108,3 +109,21 @@ def test_coupon_bond_pays_more_in_dry_years():
     assert bond.coupon_rate(np.array([500.0]))[0] > 0.055
     res = price_coupon_bond(bond, d, 0.056, "mc", 50_000)
     assert res["price"] > 0 and 0.0 < res["prob_above_fixed"] < 1.0
+
+
+def test_parameter_uncertainty_band_brackets_the_point_estimate():
+    """45 seasons do not pin down a 1-in-100 attachment; the band must say so."""
+    from src.b_bonds.pricer import price_with_parameter_uncertainty
+
+    d = gamma_dist(n=45)
+    bond = ParametricBond("x", "MAX3", float(d.dist.ppf(0.90)), float(d.dist.ppf(0.99)), 1)
+    out = price_with_parameter_uncertainty(bond, d, PremiumRule.wang(0.25), 0.056, 0.056,
+                                           n_boot=60, n_paths=8000)
+    assert out["n_boot"] >= 40
+    for key in ("expected_loss_annual", "fair_spread", "prob_attach"):
+        band, point = out[key], out["point_estimate"][key]
+        assert band["p05"] <= point <= band["p95"], key
+        assert band["p95"] > band["p05"]
+    curve = out["exceedance_band"]
+    assert all(row["lo"] <= row["mid"] <= row["hi"] + 1e-12 for row in curve)
+    assert curve[0]["hi"] >= curve[-1]["hi"]        # exceedance is non-increasing

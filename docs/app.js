@@ -70,9 +70,11 @@ async function main() {
 
   const b = weather.meta.baseline;
   el('footer-meta').textContent =
-    `data as of ${weather.meta.asof} · IMD gridded rainfall ${b.history_start_year}–2025 plus a provisional 2026 · `
+    `data as of ${weather.meta.asof} · built ${weather.meta.built_at ?? 'unknown'} · `
+    + `IMD gridded rainfall ${b.history_start_year}–2025 plus a provisional 2026 · `
     + `normals ${b.lpa_start_year}–${b.lpa_end_year}, ${b.smoothing_window}-day smoothing · `
-    + `NIFTY 50 inputs as of ${game.inputs.asof}`;
+    + `${weather.meta.bootstrap_resamples ?? 0} bootstrap resamples · `
+    + `NIFTY 50 inputs as of ${game.inputs.asof} (entered by hand; see the data register)`;
 
   window.__rerender = () => { renderWeather(weather); renderGame(game); };
 }

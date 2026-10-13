@@ -11,15 +11,20 @@ settlement value equals the realised seasonal rainfall in mm.
 Fair value at a valuation date is the spot plus the expected remaining
 deviation:
 
-    F = spot(t) + (factor - 1) * LPA(t, T] + trend(t, T] + lambda * sd(t, T]
+    F = spot(t) + (factor - 1) * LPA(t, T] + lambda * sd(t, T]
 
-`factor` is the published seasonal outlook as a fraction of the LPA (IMD's
-category centre), `trend` is a Theil-Sen trend in seasonal totals extrapolated
-to the current year, and `lambda` is a market price of risk, zero by default.
-Note what the first term implies: with a climatological forecast (factor = 1,
-no trend, no risk premium) fair value equals the current spot, so the future is
-a martingale under climatology and every departure from spot has to be argued
-for explicitly.
+`factor` is a seasonal forecast as a fraction of the LPA and `lambda` is a
+market price of risk, zero by default.  Note what the first term implies: with
+a climatological forecast (factor = 1, no risk premium) fair value equals the
+current spot, so the future is a martingale under climatology and every
+departure from spot has to be argued for explicitly.
+
+Where the factor comes from is the whole question.  IMD's published outlook is
+categorical and its category centre is 1.00, which makes the term vanish, so
+`src/b_bonds/forecast.py` fits a seasonal forecast on climate state known
+before the season opens and scores it out of sample against climatology.  Its
+selected variant - which for two of the three cities is climatology itself -
+supplies the factor here.
 """
 from __future__ import annotations
 
@@ -29,7 +34,6 @@ import numpy as np
 import pandas as pd
 
 from ..a_rainfall.indices import CityIndex, season_mask
-from ..common.stats import theil_sen_trend
 
 
 def _season_dates(year: int, window: tuple[str, str]) -> pd.DatetimeIndex:
@@ -54,17 +58,7 @@ class FuturesModel:
     ci: CityIndex
     forecast_factor: float = 1.0
     risk_lambda: float = 0.0
-    use_trend: bool = True
-    trend_fit_through: int | None = None     # expanding-window backtests set this
-
-    def _trend_slope(self) -> dict:
-        rows = self.ci.table[self.ci.table["complete"]]
-        if self.trend_fit_through is not None:
-            rows = rows[rows["year"] <= self.trend_fit_through]
-        if len(rows) < 10:
-            return {"slope_mm_per_year": 0.0, "kendall_p": 1.0, "intercept": 0.0,
-                    "lo": 0.0, "hi": 0.0, "kendall_tau": 0.0}
-        return theil_sen_trend(rows["year"].to_numpy(float), rows["SEAS_TOTAL"].to_numpy(float))
+    forecast_label: str = "climatology"
 
     def remaining_normal(self, year: int, asof: pd.Timestamp, expiry: pd.Timestamp) -> float:
         dates = _season_dates(year, self.ci.window)
@@ -96,28 +90,20 @@ class FuturesModel:
         spot = self.spot(year, asof)
         lpa_rem = self.remaining_normal(year, asof, expiry)
         sd_rem = self.remaining_sd(year, asof, expiry)
-        trend = self._trend_slope()
-        season_lpa = float(self.ci.lpa.reindex(
-            _season_dates(year, self.ci.window).strftime("%m-%d")).sum())
-        trend_component = 0.0
-        if self.use_trend and trend["kendall_p"] < 0.10 and season_lpa > 0:
-            mid = 2005.5                      # centre of the 1991-2020 baseline window
-            trend_component = trend["slope_mm_per_year"] * (year - mid) * (lpa_rem / season_lpa)
         forecast_component = (self.forecast_factor - 1.0) * lpa_rem
         premium = self.risk_lambda * sd_rem
-        fv = spot + forecast_component + trend_component + premium
+        fv = spot + forecast_component + premium
         return {
             "asof": asof.strftime("%Y-%m-%d"),
             "expiry": expiry.strftime("%Y-%m-%d"),
             "spot_mm": spot,
             "remaining_normal_mm": lpa_rem,
             "remaining_sd_mm": sd_rem,
+            "forecast_factor": float(self.forecast_factor),
+            "forecast_label": self.forecast_label,
             "forecast_component_mm": float(forecast_component),
-            "trend_component_mm": float(trend_component),
             "risk_premium_mm": float(premium),
             "fair_value_mm": float(fv),
-            "trend_slope_mm_per_year": trend["slope_mm_per_year"],
-            "trend_kendall_p": trend["kendall_p"],
         }
 
     def settlement(self, year: int, expiry: pd.Timestamp) -> float | None:
@@ -159,13 +145,16 @@ def monthly_contracts(ci: CityIndex, year: int, months: list[int], model: Future
 
 
 def backtest(ci: CityIndex, start_year: int, end_year: int, multiplier: float = 50.0,
-             forecast_factor: float = 1.0) -> dict:
+             walk_forward_rows: list[dict] | None = None) -> dict:
     """Season-start fair value against realised settlement, year by year.
 
-    The trend is refitted each year on seasons strictly before it, so the trend
-    model never sees its own target.  The 1991-2020 normal is a fixed contract
+    Two models are scored on the same seasons: climatology, which quotes the
+    anchor, and the statistical forecast, whose variant and coefficients are
+    both chosen on seasons strictly before the one being priced (see
+    `forecast.walk_forward`).  The 1991-2020 normal is a fixed contract
     parameter and is deliberately not re-estimated.
     """
+    wf = {row["year"]: row for row in (walk_forward_rows or [])}
     rows = []
     for year in range(start_year, end_year + 1):
         if year not in ci.table.index:
@@ -175,19 +164,22 @@ def backtest(ci: CityIndex, start_year: int, end_year: int, multiplier: float = 
         exp = _season_dates(year, ci.window)[-1]
         asof = season_start - pd.Timedelta(days=1)
 
-        trend_model = FuturesModel(ci, forecast_factor=forecast_factor, use_trend=True,
-                                   trend_fit_through=year - 1)
-        naive_model = FuturesModel(ci, forecast_factor=1.0, use_trend=False)
-        fv_trend = trend_model.fair_value(year, asof, exp)["fair_value_mm"]
+        factor = wf.get(year, {}).get("factor", 1.0)
+        forecast_model = FuturesModel(ci, forecast_factor=factor,
+                                   forecast_label=wf.get(year, {}).get("variant", "climatology"))
+        naive_model = FuturesModel(ci, forecast_factor=1.0)
+        fv_forecast = forecast_model.fair_value(year, asof, exp)["fair_value_mm"]
         fv_naive = naive_model.fair_value(year, asof, exp)["fair_value_mm"]
         settled = ci.anchor_mm + float(rec["CDR"])
         rows.append({
             "year": int(year),
             "settlement_mm": settled,
             "season_total_mm": float(rec["SEAS_TOTAL"]),
-            "fair_value_trend_mm": float(fv_trend),
+            "fair_value_forecast_mm": float(fv_forecast),
+            "forecast_variant": wf.get(year, {}).get("variant", "climatology"),
+            "forecast_factor": float(factor),
             "fair_value_anchor_mm": float(fv_naive),
-            "error_trend_mm": float(fv_trend - settled),
+            "error_forecast_mm": float(fv_forecast - settled),
             "error_anchor_mm": float(fv_naive - settled),
             "pnl_long_at_anchor_inr": float((settled - fv_naive) * multiplier),
             "complete": bool(rec["complete"]),
@@ -205,11 +197,11 @@ def backtest(ci: CityIndex, start_year: int, end_year: int, multiplier: float = 
     return {
         "rows": rows,
         "n_years": int(len(done)),
-        "trend_model": stats("error_trend_mm"),
+        "forecast_model": stats("error_forecast_mm"),
         "anchor_model": stats("error_anchor_mm"),
-        "trend_beats_anchor_pct": float(100.0 * np.mean(
-            np.abs(done["error_trend_mm"]) < np.abs(done["error_anchor_mm"]))) if len(done) else 0.0,
+        "forecast_beats_anchor_pct": float(100.0 * np.mean(
+            np.abs(done["error_forecast_mm"]) < np.abs(done["error_anchor_mm"]))) if len(done) else 0.0,
         "models_identical_pct": float(100.0 * np.mean(
-            np.isclose(done["error_trend_mm"], done["error_anchor_mm"]))) if len(done) else 0.0,
+            np.isclose(done["error_forecast_mm"], done["error_anchor_mm"]))) if len(done) else 0.0,
         "mean_abs_pnl_inr_per_lot": float(np.abs(done["pnl_long_at_anchor_inr"]).mean()) if len(done) else 0.0,
     }

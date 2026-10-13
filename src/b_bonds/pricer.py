@@ -151,6 +151,72 @@ def quadrature_expected_loss(bond: ParametricBond, distribution) -> float:
     return float(val)
 
 
+def price_with_parameter_uncertainty(bond: ParametricBond, distribution, rule: PremiumRule,
+                                     rate: float, collateral_yield: float, n_boot: int = 200,
+                                     n_paths: int = 20_000, seed: int = 20261013) -> dict:
+    """Bootstrap the seasons, refit, re-price - the band the 45-year record supports.
+
+    The headline loss-exceedance curve is drawn from one distribution fitted to
+    45 observations, with an exhaustion point near the 99th percentile.  Drawn
+    alone it looks far more precise than the data warrants.  This resamples the
+    observed seasons with replacement, refits the same family, and re-prices, so
+    every published curve can carry the spread of curves the record is actually
+    consistent with.
+    """
+    from ..a_rainfall.fit import SeasonDistribution
+    from ..common.stats import select_distribution
+
+    sample = np.asarray(distribution.burn_sample(), dtype=float)
+    best = getattr(distribution, "best", None)
+    family = best.family if best is not None else distribution.dist.dist.name
+    rng = np.random.default_rng(seed)
+
+    base = price_parametric(bond, distribution, rule, rate, collateral_yield, "mc", n_paths, seed)
+    grid = np.array([row["loss"] for row in base.exceedance], dtype=float)
+    curves, els, spreads, attach, exhaust = [], [], [], [], []
+
+    for b in range(n_boot):
+        draw = rng.choice(sample, size=len(sample), replace=True)
+        try:
+            best, _all = select_distribution(draw, [family])
+            boot_dist = SeasonDistribution(bond.city, bond.trigger, draw, best, [best])
+            res = price_parametric(bond, boot_dist, rule, rate, collateral_yield, "mc",
+                                   n_paths, seed + 1 + b)
+        except Exception:      # a resample the family will not fit is simply skipped
+            continue
+        curves.append([row["prob"] for row in res.exceedance])
+        els.append(res.expected_loss_annual)
+        spreads.append(res.fair_spread)
+        attach.append(res.prob_attach)
+        exhaust.append(res.prob_exhaust)
+
+    if not curves:
+        return {"n_boot": 0, "note": "no bootstrap resample could be fitted"}
+    arr = np.array(curves)
+
+    def band(values):
+        v = np.asarray(values, dtype=float)
+        return {"p05": float(np.quantile(v, 0.05)), "p50": float(np.quantile(v, 0.50)),
+                "p95": float(np.quantile(v, 0.95))}
+
+    return {
+        "n_boot": int(len(curves)), "n_seasons": int(len(sample)), "family": family,
+        "exceedance_band": [
+            {"loss": float(x), "lo": float(np.quantile(arr[:, i], 0.05)),
+             "mid": float(np.quantile(arr[:, i], 0.50)),
+             "hi": float(np.quantile(arr[:, i], 0.95))}
+            for i, x in enumerate(grid)],
+        "expected_loss_annual": band(els),
+        "fair_spread": band(spreads),
+        "prob_attach": band(attach),
+        "prob_exhaust": band(exhaust),
+        "point_estimate": {"expected_loss_annual": base.expected_loss_annual,
+                           "fair_spread": base.fair_spread,
+                           "prob_attach": base.prob_attach,
+                           "prob_exhaust": base.prob_exhaust},
+    }
+
+
 def price_coupon_bond(bond: WeatherCouponBond, distribution, rate: float,
                       method: str = "mc", n_paths: int = 100_000,
                       seed: int = 20261013) -> dict:

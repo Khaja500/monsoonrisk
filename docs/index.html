@@ -62,6 +62,17 @@
       <div class="grid3" id="contract-cards"><div class="loading">loading…</div></div>
     </div>
 
+    <div class="card">
+      <h3>Does the seasonal forecast know anything?</h3>
+      <p class="hint">A fair value only differs from today's spot if something can be said about the
+        rest of the season. IMD publishes a category, not a number, and its centre is 1.00 &mdash;
+        which says nothing. So the season total is regressed on climate state known before the
+        season opens, and the result is scored out of sample against simply quoting the average.</p>
+      <div class="tiles" id="forecast-state"></div>
+      <div class="table-scroll" style="margin-top:18px"><table id="forecast-skill"></table></div>
+      <div class="table-scroll" style="margin-top:18px"><table id="forecast-now"></table></div>
+    </div>
+
     <h3 style="margin:30px 0 4px">1.1 &nbsp;RAINMUMBAI: the model against the actual settlement</h3>
     <p class="part-sub">The 2026 monsoon is over, so the September contract's settlement value is
       known. It is the simple mean of IMD's Colaba and Santacruz seasonal totals &mdash; the basis
@@ -117,6 +128,7 @@
             exceeds a given amount, per 100 of face.</p>
           <div id="chart-exceedance"></div>
           <div class="legend" id="legend-exceedance"></div>
+          <div id="bond-uncertainty" style="margin-top:12px"></div>
         </div>
         <div>
           <h4 style="font-size:.95rem;margin-bottom:2px">Where the triggers sit</h4>
@@ -129,6 +141,7 @@
       <div class="table-scroll" style="margin-top:22px">
         <table id="bond-reference"></table>
       </div>
+      <p class="hint" id="bond-reference-note" style="margin-top:10px"></p>
     </div>
 
     <div class="card">
@@ -204,6 +217,7 @@
           frequency, Crank&ndash;Nicolson finite differences with two obstacles, and the rigorous
           bracket. Disagreements are shown, not smoothed.</p>
         <div class="table-scroll"><table id="method-table"></table></div>
+        <p class="hint" id="method-note" style="margin-top:10px"></p>
       </div>
       <div class="card">
         <h3>Tree convergence</h3>
