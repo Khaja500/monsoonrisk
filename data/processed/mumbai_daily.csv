@@ -16720,3 +16720,5 @@ date,rain_mm,source_group,is_provisional,source,cell_lat,cell_lon
 2026-10-10,0.5400,nasa_power,True,NASA POWER PRECTOTCORR (MERRA-2) - stands in for IMD days not yet published,19.0000,73.0000
 2026-10-11,0.8700,nasa_power,True,NASA POWER PRECTOTCORR (MERRA-2) - stands in for IMD days not yet published,19.0000,73.0000
 2026-10-12,0.1000,nasa_power,True,NASA POWER PRECTOTCORR (MERRA-2) - stands in for IMD days not yet published,19.0000,73.0000
+2026-10-13,0.1300,nasa_power,True,NASA POWER PRECTOTCORR (MERRA-2) - stands in for IMD days not yet published,19.0000,73.0000
+2026-10-14,0.0700,nasa_power,True,NASA POWER PRECTOTCORR (MERRA-2) - stands in for IMD days not yet published,19.0000,73.0000
